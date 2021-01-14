@@ -29,12 +29,7 @@
 
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/slice.hpp>
-#include <range/v3/view/span.hpp>
 
-#include <libsolutil/Common.h>
-
-#include <cstddef>
-#include <map>
 #include <optional>
 
 
@@ -42,31 +37,36 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::evmasm;
 
-bool Inliner::isInlineCandidate(ranges::span<AssemblyItem> _items) const
+bool Inliner::isInlineCandidate(ranges::span<AssemblyItem const> _items) const
 {
 	return _items.size() < m_inlineMaxOpcodes;
 }
 
-void Inliner::optimise()
+map<u256, ranges::span<AssemblyItem const>> Inliner::determineInlinableBlocks(AssemblyItems const& _items) const
 {
-	std::map<u256, ranges::span<AssemblyItem>> inlinableBlocks;
-
+	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlocks;
 	std::optional<size_t> lastTag;
-	for (auto&& [index, item]: m_items | ranges::views::enumerate)
+	for (auto&& [index, item]: _items | ranges::views::enumerate)
 	{
 		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, true))
 		{
 			if (item == Instruction::JUMP)
 			{
-				ranges::span<AssemblyItem> items(m_items | ranges::views::slice(*lastTag + 1, index + 1));
+				ranges::span<AssemblyItem const> items(_items | ranges::views::slice(*lastTag + 1, index + 1));
 				if (isInlineCandidate(items))
-					inlinableBlocks.emplace(make_pair(m_items[*lastTag].data(), items));
+					inlinableBlocks.emplace(make_pair(_items[*lastTag].data(), items));
 			}
 			lastTag.reset();
 		}
 		if (item.type() == Tag)
 			lastTag = index;
 	}
+	return inlinableBlocks;
+}
+
+void Inliner::optimise()
+{
+	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlocks = determineInlinableBlocks(m_items);
 
 	if (inlinableBlocks.empty())
 		return;

@@ -21,8 +21,10 @@
  */
 #pragma once
 
-#include <vector>
+#include <libsolutil/Common.h>
 #include <range/v3/view/span.hpp>
+#include <map>
+#include <vector>
 
 namespace solidity::evmasm
 {
@@ -35,7 +37,8 @@ public:
 	explicit Inliner(AssemblyItems& _items, int _inlineMaxOpcodes = 5): m_items(_items), m_inlineMaxOpcodes(_inlineMaxOpcodes) {}
 	virtual ~Inliner() = default;
 
-	bool isInlineCandidate(ranges::span<AssemblyItem> _items) const;
+	bool isInlineCandidate(ranges::span<AssemblyItem const> _items) const;
+	std::map<u256, ranges::span<AssemblyItem const>> determineInlinableBlocks(AssemblyItems const& _items) const;
 	void optimise();
 
 private:
