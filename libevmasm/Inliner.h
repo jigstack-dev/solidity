@@ -22,6 +22,7 @@
 #pragma once
 
 #include <vector>
+#include <range/v3/view/span.hpp>
 
 namespace solidity::evmasm
 {
@@ -31,13 +32,15 @@ using AssemblyItems = std::vector<AssemblyItem>;
 class Inliner
 {
 public:
-	explicit Inliner(AssemblyItems& _items): m_items(_items) {}
+	explicit Inliner(AssemblyItems& _items, int _inlineMaxOpcodes = 5): m_items(_items), m_inlineMaxOpcodes(_inlineMaxOpcodes) {}
 	virtual ~Inliner() = default;
 
+	bool isInlineCandidate(ranges::span<AssemblyItem> _items) const;
 	void optimise();
 
 private:
 	AssemblyItems& m_items;
+	int const m_inlineMaxOpcodes;
 };
 
 }

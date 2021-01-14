@@ -30,6 +30,7 @@
 #include <range/v3/view/drop.hpp>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/slice.hpp>
+#include <range/v3/view/span.hpp>
 
 #include <libsolutil/Common.h>
 
@@ -42,27 +43,25 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::evmasm;
 
+bool Inliner::isInlineCandidate(ranges::span<AssemblyItem> _items) const
+{
+	return _items.size() < m_inlineMaxOpcodes;
+}
+
 void Inliner::optimise()
 {
-	std::map<u256, AssemblyItems> inlinableBlocks;
+	std::map<u256, ranges::span<AssemblyItem>> inlinableBlocks;
 
 	std::optional<size_t> lastTag;
 	for (auto&& [index, item]: m_items | ranges::views::enumerate)
 	{
 		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, true))
 		{
-			if (
-				item.type() == Operation &&
-				item.instruction() == Instruction::JUMP && // TODO: what about JUMPI?
-				index - *lastTag < 5) // TODO: reasonable heuristics
+			if (item == Instruction::JUMP)
 			{
-				auto subrange = m_items | ranges::views::slice(*lastTag + 1, index + 1);
-				if (!subrange.empty())
-					inlinableBlocks.emplace(
-						std::piecewise_construct,
-						std::forward_as_tuple(m_items[*lastTag].data()),
-						std::forward_as_tuple(ranges::begin(subrange), ranges::end(subrange))
-					);
+				ranges::span<AssemblyItem> items(m_items | ranges::views::slice(*lastTag + 1, index + 1));
+				if (isInlineCandidate(items))
+					inlinableBlocks.emplace(make_pair(m_items[*lastTag].data(), items));
 			}
 			lastTag.reset();
 		}
@@ -74,28 +73,22 @@ void Inliner::optimise()
 		return;
 
 	AssemblyItems newItems;
-	bool skipOne = false;
-	for (auto&& [item, nextItem]: ranges::views::zip(m_items, ranges::views::drop(m_items, 1)))
+	for (auto it = m_items.begin(); it != m_items.end(); ++it)
 	{
-		if (skipOne)
+		AssemblyItem const& item = *it;
+		if (next(it) != m_items.end())
 		{
-			skipOne = false;
-			continue;
+			AssemblyItem const& nextItem = *next(it);
+			if (item.type() == PushTag && nextItem == Instruction::JUMP)
+				if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
+				{
+					newItems += *inlinableBlock;
+					++it;
+					continue;
+				}
 		}
-		if (
-			item.type() == PushTag &&
-			nextItem.type() == Operation &&
-			nextItem.instruction() == Instruction::JUMP
-		)
-			if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
-			{
-				newItems += *inlinableBlock;
-				skipOne = true;
-				continue;
-			}
-		newItems.emplace_back(move(item));
+		newItems.emplace_back(item);
 	}
-	if (!skipOne)
-		newItems.emplace_back(move(m_items.back()));
+
 	m_items = move(newItems);
 }
