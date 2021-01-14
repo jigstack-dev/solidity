@@ -66,155 +66,31 @@ map<u256, ranges::span<AssemblyItem const>> Inliner::determineInlinableBlocks(As
 
 namespace
 {
-AssemblyItem::JumpType determineJumpType(AssemblyItem::JumpType _intoBlock, AssemblyItem::JumpType _outOfBlock)
+optional<AssemblyItem::JumpType> determineJumpType(AssemblyItem::JumpType _intoBlock, AssemblyItem::JumpType _outOfBlock)
 {
-	static map<pair<AssemblyItem::JumpType, AssemblyItem::JumpType>, AssemblyItem::JumpType> jumpTypeMapping{
-		/*
-		 * ...{A}...
-		 * JUMP(tag_1) // intoBlock: ordinary
-		 * tag_1:
-		 * ...{B}...
-		 * JUMP(tag_2) // outOfBlock: ordinary
-		 * tag_2:
-		 * ...
-		 *
-		 * to
-		 *
-		 * ...{A}...
-		 * ...{B}...
-		 * JUMP(tag_2) // result: ordinary
-		 * tag_2:
-		 * ...
-		 */
-		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::Ordinary},
-		/*
-		 * ...{A}...
-		 * JUMP(tag) // intoBlock: ordinary
-		 * tag:
-		 * ...{B}...
-		 * f() // outOfBlock: into
-		 *
-		 * to
-		 *
-		 * ...{A}...
-		 * ...{B}...
-		 * f() // result: into
-		 */
-		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
-		/*
-		 * function f() {
-		 *   ...{A}...
-		 *   JUMP(tag) // intoBlock: ordinary
-		 *   tag:
-		 *   ...{B}...
-		 *   leave // outOfBlock: out of
-		 * }
-		 *
-		 * to
-		 *
-		 * function f() {
-		 *   ...{A}...
-		 *   ...{B}...
-		 *   leave // result: out of
-		 * }
-		 *
-		 */
-		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
-		/*
-		 * f() // intoBlock: into
-		 *
-		 * function f() {
-		 *   ...{A}...
-		 *   JUMP(tag) // outOfBlock: ordinary
-		 *   tag:
-		 *   ...{B}...
-		 * }
-		 *
-		 * to
-		 *
-		 * ...{A}...
-		 * f() // result: into
-		 *
-		 * function f() {
-		 *   ...{B}...
-		 * }
-		 */
-		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::IntoFunction},
-		/*
-		 * TODO: this one is weird...
-		 */
-		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
-		/*
-		 * f() // intoBlock: into
-		 *
-		 * function f() {
-		 * ...{A}...
-		 * leave // outOfBlock: out of
-		 * }
-		 *
-		 * to
-		 *
-		 * ...{A}... (with a ``JUMP(tag) tag:`` after the block as result)
-		 *
-		 *
-		 */
-		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::Ordinary},
-		/*
-		 * function f() {
-		 *   ...{A}...
-		 *   leave // intoBlock: out of
-		 * }
-		 *
-		 * f()
-		 * JUMP(tag) // ordinry: ordinary
-		 * tag:
-		 * ...{B}...
-
-		 *
-		 * to
-		 *
-		 * function f() {
-		 *    ...{A}...
-		 *    ...{B}...
-		 *    leave // result: out of
-		 * }
-		 *
-		 * f()
-		 *
-		 *
-		 */
-		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::OutOfFunction},
-		/*
-		 * function f() {
-		 *    ...{A}...
-		 *    leave // intoBlock: out of
-		 * }
-		 * function g() {
-		 * 	  ...{B}...
-		 * }
-		 *
-		 * f()
-		 * g() // outOfBlock: into
-		 *
-		 * to
-		 *
-		 * function f_and_g() {
-		 *    ...{A}...
-		 *    JUMP(tag) // result: ordinary
-		 *    tag:
-		 *    ...{B}...
-		 * }
-		 *
-		 *
-		 *
-		 */
-		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::Ordinary},
-		/*
-		 * TODO: this one is also weird...
-		 */
-		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
+	auto jumpTypeToInt = [](AssemblyItem::JumpType _jumpType) -> int {
+		switch (_jumpType)
+		{
+			case AssemblyItem::JumpType::IntoFunction:
+				return +1;
+			case AssemblyItem::JumpType::OutOfFunction:
+				return -1;
+			case AssemblyItem::JumpType::Ordinary:
+				return 0;
+		}
+		assertThrow(false, OptimizerException, "");
 	};
-	return jumpTypeMapping.at(make_pair(_intoBlock, _outOfBlock));
+	switch (jumpTypeToInt(_intoBlock) + jumpTypeToInt(_outOfBlock))
+	{
+		case 0:
+			return AssemblyItem::JumpType::Ordinary;
+		case 1:
+			return AssemblyItem::JumpType::IntoFunction;
+		case -1:
+			return AssemblyItem::JumpType::OutOfFunction;
+		default:
+			return nullopt;
+	}
 }
 }
 
@@ -234,12 +110,13 @@ void Inliner::optimise()
 			AssemblyItem const& nextItem = *next(it);
 			if (item.type() == PushTag && nextItem == Instruction::JUMP)
 				if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
-				{
-					newItems += *inlinableBlock;
-					newItems.back().setJumpType(determineJumpType(nextItem.getJumpType(), inlinableBlock->back().getJumpType()));
-					++it;
-					continue;
-				}
+					if (auto jumpType = determineJumpType(nextItem.getJumpType(), inlinableBlock->back().getJumpType()))
+					{
+						newItems += *inlinableBlock;
+						newItems.back().setJumpType(*jumpType);
+						++it;
+						continue;
+					}
 		}
 		newItems.emplace_back(item);
 	}
