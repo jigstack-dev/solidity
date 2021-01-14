@@ -27,7 +27,6 @@
 
 #include <libsolutil/CommonData.h>
 
-#include <range/v3/view/drop.hpp>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/slice.hpp>
 #include <range/v3/view/span.hpp>

@@ -11,11 +11,11 @@ contract Medium {
 }
 // ----
 // creation:
-//   codeDepositCost: 357400
-//   executionCost: 393
-//   totalCost: 357793
+//   codeDepositCost: 360400
+//   executionCost: 399
+//   totalCost: 360799
 // external:
-//   a(): 1128
+//   a(): 1152
 //   b(uint256): infinite
 //   f1(uint256): infinite
 //   f2(uint256): infinite
