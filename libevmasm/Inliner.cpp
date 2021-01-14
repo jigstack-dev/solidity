@@ -64,6 +64,234 @@ map<u256, ranges::span<AssemblyItem const>> Inliner::determineInlinableBlocks(As
 	return inlinableBlocks;
 }
 
+namespace
+{
+AssemblyItem::JumpType determineJumpType(AssemblyItem::JumpType _intoBlock, AssemblyItem::JumpType _outOfBlock)
+{
+	static map<pair<AssemblyItem::JumpType, AssemblyItem::JumpType>, AssemblyItem::JumpType> jumpTypeMapping{
+		/*
+		 * ...{A}...
+		 * JUMP(tag_1) // intoBlock: ordinary
+		 * tag_1:
+		 * ...{B}...
+		 * JUMP(tag_2) // outOfBlock: ordinary
+		 * tag_2:
+		 * ...
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * ...{B}...
+		 * JUMP(tag_2) // result: ordinary
+		 * tag_2:
+		 * ...
+		 */
+		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::Ordinary},
+		/*
+		 * ...{A}...
+		 * JUMP(tag_1) // intoBlock: ordinary
+		 * tag_1:
+		 * ...{B}...
+		 * PUSHTAG(someFunction)
+		 * JUMP(tag_2) // outOfBlock: into
+		 * someFunction:
+		 * ...
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * ...{B}...
+		 * PUSHTAG(someFunction)
+		 * JUMP(tag_2) // result: into
+		 * someFunction:
+		 * ...
+		 */
+		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
+		/*
+		 * PUSHTAG(returnTag)
+		 * ...{A}...
+		 * JUMP(tag_1) // intoBlock: ordinary
+		 * tag_1:
+		 * ...{B}...
+		 * JUMP(tag_2) // outOfBlock: out of
+		 * returnTag:
+		 * ...
+		 *
+		 * to
+		 *
+		 * PUSHTAG(returnTag)
+		 * ...{A}...
+		 * ...{B}...
+		 * JUMP(tag_2) // result: out of
+		 * returnTag:
+		 *
+		 */
+		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
+		/*
+		 * ...{A}...
+		 * PUSHTAG(main_out)
+		 * JUMP(tag_1) // intoBlock: into
+		 * main_out:
+		 * ...{B}...
+		 *
+		 * tag_1:
+		 * ...{C}...
+		 * JUMP(tag_2) // outOfBlock: ordinary
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * PUSHTAG(main_out)
+		 * ...{C}...
+		 * JUMP(tag_2) // result: into
+		 * out_1:
+		 * ...{B}...
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 */
+		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::IntoFunction},
+		/*
+		 * ...{A}...
+		 * PUSHTAG(main_out)
+		 * JUMP(tag_1) // intoBlock: into
+		 * main_out:
+		 * ...{B}...
+		 *
+		 * tag_1:
+		 * ...{C}...
+		 * PUSHTAG(tag_1_out)
+		 * JUMP(tag_2) // outOfBlock: into
+		 * tag_1_out:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * PUSHTAG(main_out)
+		 * ...{C}...
+		 * PUSHTAG(tag_1_out)
+		 * JUMP(tag_2) // result: into (2x)
+		 * main_out:
+		 * ...{B}...
+		 *
+		 * tag_1_out:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 */
+		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
+		/*
+		 * PUSHTAG(main_out)
+		 * JUMP(f) // intoBlock: into
+		 * main_out:
+		 * ...
+		 *
+		 * f:
+		 * ...{A}...
+		 * JUMP // outOfBlock: out
+		 *
+		 * to
+		 *
+		 * PUSHTAG(main_out)
+		 * ...{A}...
+		 * JUMP // outOfBlock: ordinary
+		 * main_out:
+		 * ...
+		 *
+		 *
+		 */
+		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::Ordinary},
+		/*
+		 * ...{A}...
+		 * JUMP(return) // intoBlock: out of
+		 * return:
+		 * ...{B}...
+		 * JUMP(tag_2) // outOfBlock: ordinary
+		 *
+		 * tag_2:
+		 * ...
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * ...{B}...
+		 * JUMP(tag_2) // result: out of
+		 *
+		 * tag_2:
+		 * ...
+		 *
+		 *
+		 */
+		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::OutOfFunction},
+		/*
+		 * ...{A}...
+		 * JUMP(return) // intoBlock: out of
+		 * return:
+		 * ...{B}...
+		 * PUSH(tag_2_out)
+		 * JUMP(tag_2) // outOfBlock: into
+		 * tag_2_out:
+		 * ...{C}...
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * ...{B}...
+		 * PUSH(tag_2_out)
+		 * JUMP(tag_2) // result: ordinary
+		 * tag2_out:
+		 * ...{C}...
+		 *
+		 * tag_2:
+		 * ...<potentially more jumps>...
+		 * JUMP // out, eventually
+		 */
+		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::Ordinary},
+		/*
+		 * ...{A}...
+		 * JUMP(return) // intoBlock: out of
+		 *
+		 * return:
+		 * ...{C}...
+		 * JUMP(return2) // outOfBlock: out of
+		 *
+		 * return2:
+		 * ...{D}...
+		 *
+		 * to
+		 *
+		 * ...{A}...
+		 * ...{C}...
+		 * JUMP(return2) // outOfBlock: out of (2x)
+		 *
+		 * return2:
+		 * ...{D}...
+		 *
+		 */
+		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
+	};
+	return jumpTypeMapping.at(make_pair(_intoBlock, _outOfBlock));
+}
+}
+
 void Inliner::optimise()
 {
 	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlocks = determineInlinableBlocks(m_items);
@@ -82,6 +310,7 @@ void Inliner::optimise()
 				if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
 				{
 					newItems += *inlinableBlock;
+					newItems.back().setJumpType(determineJumpType(nextItem.getJumpType(), inlinableBlock->back().getJumpType()));
 					++it;
 					continue;
 				}

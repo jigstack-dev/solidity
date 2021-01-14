@@ -82,8 +82,7 @@ sub_0: assembly {
       stop
         /* "optimizer_BlockDeDuplicator/input.sol":108:133  function fun_() public {} */
     tag_4:
-      tag_3
-      jump	// out
+      jump(tag_3)
         /* "optimizer_BlockDeDuplicator/input.sol":138:174  function f() public { true ? 1 : 3;} */
     tag_7:
       jump	// out
