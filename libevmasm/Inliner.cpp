@@ -89,202 +89,128 @@ AssemblyItem::JumpType determineJumpType(AssemblyItem::JumpType _intoBlock, Asse
 		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::Ordinary},
 		/*
 		 * ...{A}...
-		 * JUMP(tag_1) // intoBlock: ordinary
-		 * tag_1:
+		 * JUMP(tag) // intoBlock: ordinary
+		 * tag:
 		 * ...{B}...
-		 * PUSHTAG(someFunction)
-		 * JUMP(tag_2) // outOfBlock: into
-		 * someFunction:
-		 * ...
+		 * f() // outOfBlock: into
 		 *
 		 * to
 		 *
 		 * ...{A}...
 		 * ...{B}...
-		 * PUSHTAG(someFunction)
-		 * JUMP(tag_2) // result: into
-		 * someFunction:
-		 * ...
+		 * f() // result: into
 		 */
 		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
 		/*
-		 * PUSHTAG(returnTag)
-		 * ...{A}...
-		 * JUMP(tag_1) // intoBlock: ordinary
-		 * tag_1:
-		 * ...{B}...
-		 * JUMP(tag_2) // outOfBlock: out of
-		 * returnTag:
-		 * ...
+		 * function f() {
+		 *   ...{A}...
+		 *   JUMP(tag) // intoBlock: ordinary
+		 *   tag:
+		 *   ...{B}...
+		 *   leave // outOfBlock: out of
+		 * }
 		 *
 		 * to
 		 *
-		 * PUSHTAG(returnTag)
-		 * ...{A}...
-		 * ...{B}...
-		 * JUMP(tag_2) // result: out of
-		 * returnTag:
+		 * function f() {
+		 *   ...{A}...
+		 *   ...{B}...
+		 *   leave // result: out of
+		 * }
 		 *
 		 */
 		{{AssemblyItem::JumpType::Ordinary, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
 		/*
-		 * ...{A}...
-		 * PUSHTAG(main_out)
-		 * JUMP(tag_1) // intoBlock: into
-		 * main_out:
-		 * ...{B}...
+		 * f() // intoBlock: into
 		 *
-		 * tag_1:
-		 * ...{C}...
-		 * JUMP(tag_2) // outOfBlock: ordinary
-		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
+		 * function f() {
+		 *   ...{A}...
+		 *   JUMP(tag) // outOfBlock: ordinary
+		 *   tag:
+		 *   ...{B}...
+		 * }
 		 *
 		 * to
 		 *
 		 * ...{A}...
-		 * PUSHTAG(main_out)
-		 * ...{C}...
-		 * JUMP(tag_2) // result: into
-		 * out_1:
-		 * ...{B}...
+		 * f() // result: into
 		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
+		 * function f() {
+		 *   ...{B}...
+		 * }
 		 */
 		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::IntoFunction},
 		/*
-		 * ...{A}...
-		 * PUSHTAG(main_out)
-		 * JUMP(tag_1) // intoBlock: into
-		 * main_out:
-		 * ...{B}...
-		 *
-		 * tag_1:
-		 * ...{C}...
-		 * PUSHTAG(tag_1_out)
-		 * JUMP(tag_2) // outOfBlock: into
-		 * tag_1_out:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
-		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
-		 *
-		 * to
-		 *
-		 * ...{A}...
-		 * PUSHTAG(main_out)
-		 * ...{C}...
-		 * PUSHTAG(tag_1_out)
-		 * JUMP(tag_2) // result: into (2x)
-		 * main_out:
-		 * ...{B}...
-		 *
-		 * tag_1_out:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
-		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
+		 * TODO: this one is weird...
 		 */
 		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::IntoFunction},
 		/*
-		 * PUSHTAG(main_out)
-		 * JUMP(f) // intoBlock: into
-		 * main_out:
-		 * ...
+		 * f() // intoBlock: into
 		 *
-		 * f:
+		 * function f() {
 		 * ...{A}...
-		 * JUMP // outOfBlock: out
+		 * leave // outOfBlock: out of
+		 * }
 		 *
 		 * to
 		 *
-		 * PUSHTAG(main_out)
-		 * ...{A}...
-		 * JUMP // outOfBlock: ordinary
-		 * main_out:
-		 * ...
+		 * ...{A}... (with a ``JUMP(tag) tag:`` after the block as result)
 		 *
 		 *
 		 */
 		{{AssemblyItem::JumpType::IntoFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::Ordinary},
 		/*
-		 * ...{A}...
-		 * JUMP(return) // intoBlock: out of
-		 * return:
-		 * ...{B}...
-		 * JUMP(tag_2) // outOfBlock: ordinary
+		 * function f() {
+		 *   ...{A}...
+		 *   leave // intoBlock: out of
+		 * }
 		 *
-		 * tag_2:
-		 * ...
+		 * f()
+		 * JUMP(tag) // ordinry: ordinary
+		 * tag:
+		 * ...{B}...
+
 		 *
 		 * to
 		 *
-		 * ...{A}...
-		 * ...{B}...
-		 * JUMP(tag_2) // result: out of
+		 * function f() {
+		 *    ...{A}...
+		 *    ...{B}...
+		 *    leave // result: out of
+		 * }
 		 *
-		 * tag_2:
-		 * ...
+		 * f()
 		 *
 		 *
 		 */
 		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::Ordinary}, AssemblyItem::JumpType::OutOfFunction},
 		/*
-		 * ...{A}...
-		 * JUMP(return) // intoBlock: out of
-		 * return:
-		 * ...{B}...
-		 * PUSH(tag_2_out)
-		 * JUMP(tag_2) // outOfBlock: into
-		 * tag_2_out:
-		 * ...{C}...
+		 * function f() {
+		 *    ...{A}...
+		 *    leave // intoBlock: out of
+		 * }
+		 * function g() {
+		 * 	  ...{B}...
+		 * }
 		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
+		 * f()
+		 * g() // outOfBlock: into
 		 *
 		 * to
 		 *
-		 * ...{A}...
-		 * ...{B}...
-		 * PUSH(tag_2_out)
-		 * JUMP(tag_2) // result: ordinary
-		 * tag2_out:
-		 * ...{C}...
+		 * function f_and_g() {
+		 *    ...{A}...
+		 *    JUMP(tag) // result: ordinary
+		 *    tag:
+		 *    ...{B}...
+		 * }
 		 *
-		 * tag_2:
-		 * ...<potentially more jumps>...
-		 * JUMP // out, eventually
+		 *
+		 *
 		 */
 		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::IntoFunction}, AssemblyItem::JumpType::Ordinary},
 		/*
-		 * ...{A}...
-		 * JUMP(return) // intoBlock: out of
-		 *
-		 * return:
-		 * ...{C}...
-		 * JUMP(return2) // outOfBlock: out of
-		 *
-		 * return2:
-		 * ...{D}...
-		 *
-		 * to
-		 *
-		 * ...{A}...
-		 * ...{C}...
-		 * JUMP(return2) // outOfBlock: out of (2x)
-		 *
-		 * return2:
-		 * ...{D}...
-		 *
+		 * TODO: this one is also weird...
 		 */
 		{{AssemblyItem::JumpType::OutOfFunction, AssemblyItem::JumpType::OutOfFunction}, AssemblyItem::JumpType::OutOfFunction},
 	};
