@@ -39,7 +39,8 @@ using namespace solidity::evmasm;
 
 bool Inliner::isInlineCandidate(ranges::span<AssemblyItem const> _items) const
 {
-	return _items.size() < m_inlineMaxOpcodes;
+	assertThrow(_items.size() > 0, OptimizerException, "");
+	return static_cast<size_t>(_items.size()) < m_inlineMaxOpcodes;
 }
 
 map<u256, ranges::span<AssemblyItem const>> Inliner::determineInlinableBlocks(AssemblyItems const& _items) const

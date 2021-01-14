@@ -1235,7 +1235,7 @@ BOOST_AUTO_TEST_CASE(jumpdest_removal_subassemblies)
 
 	Assembly::OptimiserSettings settings;
 	settings.isCreation = false;
-	settings.runInliner = false;
+	settings.maxInlineSize = 0;
 	settings.runJumpdestRemover = true;
 	settings.runPeephole = true;
 	settings.runDeduplicate = true;

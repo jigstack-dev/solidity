@@ -580,8 +580,12 @@ std::variant<OptimiserSettings, Json::Value> parseOptimizerSettings(Json::Value 
 
 		if (auto error = checkOptimizerDetail(details, "peephole", settings.runPeephole))
 			return *error;
-		if (auto error = checkOptimizerDetail(details, "inliner", settings.runInliner))
-			return *error;
+		if (details.isMember("maxInlineSize"))
+		{
+			if (!details["maxInlineSize"].isUInt())
+				return formatFatalError("JSONError", "\"settings.optimizer.details.maxInlineSize\" must be an unsigned number.");
+			settings.maxInlineSize = details["maxInlineSize"].asUInt();
+		}
 		if (auto error = checkOptimizerDetail(details, "jumpdestRemover", settings.runJumpdestRemover))
 			return *error;
 		if (auto error = checkOptimizerDetail(details, "orderLiterals", settings.runOrderLiterals))

@@ -376,7 +376,7 @@ Assembly& Assembly::optimise(bool _enable, EVMVersion _evmVersion, bool _isCreat
 {
 	OptimiserSettings settings;
 	settings.isCreation = _isCreation;
-	settings.runInliner = true;
+	settings.maxInlineSize = 6;
 	settings.runJumpdestRemover = true;
 	settings.runPeephole = true;
 	if (_enable)
@@ -423,9 +423,9 @@ map<u256, u256> Assembly::optimiseInternal(
 	{
 		count = 0;
 
-		if (_settings.runInliner)
+		if (_settings.maxInlineSize > 0)
 		{
-			Inliner inliner{m_items};
+			Inliner inliner{m_items, _settings.maxInlineSize};
 			inliner.optimise();
 		}
 
