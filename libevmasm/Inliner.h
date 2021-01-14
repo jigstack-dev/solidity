@@ -34,7 +34,7 @@ using AssemblyItems = std::vector<AssemblyItem>;
 class Inliner
 {
 public:
-	explicit Inliner(AssemblyItems& _items, int _inlineMaxOpcodes = 5): m_items(_items), m_inlineMaxOpcodes(_inlineMaxOpcodes) {}
+	explicit Inliner(AssemblyItems& _items, int _inlineMaxOpcodes = 6): m_items(_items), m_inlineMaxOpcodes(_inlineMaxOpcodes) {}
 	virtual ~Inliner() = default;
 
 	bool isInlineCandidate(ranges::span<AssemblyItem const> _items) const;
