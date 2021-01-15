@@ -37,32 +37,49 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::evmasm;
 
-bool Inliner::isInlineCandidate(ranges::span<AssemblyItem const> _items) const
+bool Inliner::isInlineCandidate(InlinableBlock const& _block) const
 {
-	assertThrow(_items.size() > 0, OptimizerException, "");
-	return static_cast<size_t>(_items.size()) <= m_inlineMaxOpcodes;
+	assertThrow(_block.items.size() > 0, OptimizerException, "");
+	// Always try to inline if there is at most one call to the block.
+	if (_block.pushTagCount == 1)
+		return true;
+	return static_cast<size_t>(_block.items.size()) <= m_inlineMaxOpcodes;
 }
 
-map<u256, ranges::span<AssemblyItem const>> Inliner::determineInlinableBlocks(AssemblyItems const& _items) const
+map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyItems const& _items) const
 {
-	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlocks;
+	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlockItems;
+	std::map<u256, uint64_t> numPushTags;
 	std::optional<size_t> lastTag;
 	for (auto&& [index, item]: _items | ranges::views::enumerate)
 	{
+		// The number of PushTag's approximates the number of calls to a block.
+		if (item.type() == PushTag)
+			numPushTags[item.data()]++;
+
 		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, true))
 		{
 			if (item == Instruction::JUMP)
-			{
-				ranges::span<AssemblyItem const> items(_items | ranges::views::slice(*lastTag + 1, index + 1));
-				if (isInlineCandidate(items))
-					inlinableBlocks.emplace(make_pair(_items[*lastTag].data(), items));
-			}
+				inlinableBlockItems.emplace(
+					piecewise_construct,
+					forward_as_tuple(_items[*lastTag].data()),
+					forward_as_tuple(_items | ranges::views::slice(*lastTag + 1, index + 1))
+				);
 			lastTag.reset();
 		}
 		if (item.type() == Tag)
 			lastTag = index;
 	}
-	return inlinableBlocks;
+
+	map<u256, InlinableBlock> result;
+	for (auto&& [tag, items]: inlinableBlockItems)
+		if (uint64_t const* numPushes = util::valueOrNullptr(numPushTags, tag))
+		{
+			InlinableBlock block{items, *numPushes};
+			if (isInlineCandidate(block))
+				result.emplace(std::make_pair(tag, InlinableBlock{items, *numPushes}));
+		}
+	return result;
 }
 
 namespace
@@ -97,7 +114,7 @@ optional<AssemblyItem::JumpType> determineJumpType(AssemblyItem::JumpType _intoB
 
 void Inliner::optimise()
 {
-	std::map<u256, ranges::span<AssemblyItem const>> inlinableBlocks = determineInlinableBlocks(m_items);
+	std::map<u256, InlinableBlock> inlinableBlocks = determineInlinableBlocks(m_items);
 
 	if (inlinableBlocks.empty())
 		return;
@@ -111,9 +128,9 @@ void Inliner::optimise()
 			AssemblyItem const& nextItem = *next(it);
 			if (item.type() == PushTag && nextItem == Instruction::JUMP)
 				if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
-					if (auto jumpType = determineJumpType(nextItem.getJumpType(), inlinableBlock->back().getJumpType()))
+					if (auto jumpType = determineJumpType(nextItem.getJumpType(), inlinableBlock->items.back().getJumpType()))
 					{
-						newItems += *inlinableBlock;
+						newItems += inlinableBlock->items;
 						newItems.back().setJumpType(*jumpType);
 						++it;
 						continue;

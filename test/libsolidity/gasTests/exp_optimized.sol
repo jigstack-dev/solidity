@@ -19,11 +19,11 @@ contract C {
 // optimize-yul: true
 // ----
 // creation:
-//   codeDepositCost: 50000
+//   codeDepositCost: 47800
 //   executionCost: 99
-//   totalCost: 50099
+//   totalCost: 47899
 // external:
-//   exp_neg_one(uint256): 1950
-//   exp_one(uint256): 1903
-//   exp_two(uint256): 1881
-//   exp_zero(uint256): 1925
+//   exp_neg_one(uint256): 1917
+//   exp_one(uint256): 1870
+//   exp_two(uint256): 1848
+//   exp_zero(uint256): 1892

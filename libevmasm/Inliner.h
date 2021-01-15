@@ -37,11 +37,18 @@ public:
 	explicit Inliner(AssemblyItems& _items, size_t _inlineMaxOpcodes): m_items(_items), m_inlineMaxOpcodes(_inlineMaxOpcodes) {}
 	virtual ~Inliner() = default;
 
-	bool isInlineCandidate(ranges::span<AssemblyItem const> _items) const;
-	std::map<u256, ranges::span<AssemblyItem const>> determineInlinableBlocks(AssemblyItems const& _items) const;
 	void optimise();
 
 private:
+	struct InlinableBlock
+	{
+		ranges::span<AssemblyItem const> items;
+		uint64_t pushTagCount = 0;
+	};
+
+	bool isInlineCandidate(InlinableBlock const& _block) const;
+	std::map<u256, InlinableBlock> determineInlinableBlocks(AssemblyItems const& _items) const;
+
 	AssemblyItems& m_items;
 	size_t const m_inlineMaxOpcodes;
 };
