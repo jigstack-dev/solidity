@@ -67,7 +67,7 @@ struct OptimiserSettings
 	{
 		OptimiserSettings s;
 		s.runOrderLiterals = true;
-		s.maxInlineSize = 6;
+		s.maxInlineSize = 5;
 		s.runJumpdestRemover = true;
 		s.runPeephole = true;
 		s.runDeduplicate = true;

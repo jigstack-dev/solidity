@@ -376,7 +376,7 @@ Assembly& Assembly::optimise(bool _enable, EVMVersion _evmVersion, bool _isCreat
 {
 	OptimiserSettings settings;
 	settings.isCreation = _isCreation;
-	settings.maxInlineSize = 6;
+	settings.maxInlineSize = 5;
 	settings.runJumpdestRemover = true;
 	settings.runPeephole = true;
 	if (_enable)
