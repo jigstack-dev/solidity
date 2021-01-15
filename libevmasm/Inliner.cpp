@@ -37,9 +37,16 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::evmasm;
 
-bool Inliner::isInlineCandidate(InlinableBlock const& _block) const
+bool Inliner::isInlineCandidate(u256 const& _tag, InlinableBlock const& _block) const
 {
 	assertThrow(_block.items.size() > 0, OptimizerException, "");
+
+	// Never inline tags that reference themselves.
+	for (AssemblyItem const& item: _block.items)
+		if (item.type() == PushTag)
+			if (_tag == item.data())
+				return false;
+
 	// Always try to inline if there is at most one call to the block.
 	if (_block.pushTagCount == 1)
 		return true;
@@ -76,7 +83,7 @@ map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyIte
 		if (uint64_t const* numPushes = util::valueOrNullptr(numPushTags, tag))
 		{
 			InlinableBlock block{items, *numPushes};
-			if (isInlineCandidate(block))
+			if (isInlineCandidate(tag, block))
 				result.emplace(std::make_pair(tag, InlinableBlock{items, *numPushes}));
 		}
 	return result;

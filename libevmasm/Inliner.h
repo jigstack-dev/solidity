@@ -46,7 +46,7 @@ private:
 		uint64_t pushTagCount = 0;
 	};
 
-	bool isInlineCandidate(InlinableBlock const& _block) const;
+	bool isInlineCandidate(u256 const& _tag, InlinableBlock const& _block) const;
 	std::map<u256, InlinableBlock> determineInlinableBlocks(AssemblyItems const& _items) const;
 
 	AssemblyItems& m_items;
