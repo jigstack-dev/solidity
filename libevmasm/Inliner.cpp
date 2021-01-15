@@ -27,6 +27,7 @@
 
 #include <libsolutil/CommonData.h>
 
+#include <range/v3/view/drop_last.hpp>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/slice.hpp>
 
@@ -47,10 +48,7 @@ bool Inliner::isInlineCandidate(u256 const& _tag, InlinableBlock const& _block) 
 			if (_tag == item.data())
 				return false;
 
-	// Always try to inline if there is at most one call to the block.
-	if (_block.pushTagCount == 1)
-		return true;
-	return static_cast<size_t>(_block.items.size()) <= m_inlineMaxOpcodes;
+	return true;
 }
 
 map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyItems const& _items) const
@@ -64,6 +62,7 @@ map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyIte
 		if (item.type() == PushTag)
 			numPushTags[item.data()]++;
 
+		// We can only inline blocks with straight control flow that end in a jump.
 		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, true))
 		{
 			if (item == Instruction::JUMP)
@@ -74,10 +73,12 @@ map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyIte
 				);
 			lastTag.reset();
 		}
+
 		if (item.type() == Tag)
 			lastTag = index;
 	}
 
+	// Filter candidates for general inlinability and store the number of PushTag's alongside the assembly items.
 	map<u256, InlinableBlock> result;
 	for (auto&& [tag, items]: inlinableBlockItems)
 		if (uint64_t const* numPushes = util::valueOrNullptr(numPushTags, tag))
@@ -119,6 +120,27 @@ optional<AssemblyItem::JumpType> determineJumpType(AssemblyItem::JumpType _intoB
 }
 }
 
+optional<AssemblyItem> Inliner::shouldInline(u256 const&, AssemblyItem const& _jump, InlinableBlock const& _block) const
+{
+	// Determine the exit jump to be used, if the block is inlined.
+	AssemblyItem exitJump = _block.items.back();
+	if (auto exitJumpType = determineJumpType(_jump.getJumpType(), exitJump.getJumpType()))
+		exitJump.setJumpType(*exitJumpType);
+	else
+		return nullopt;
+
+	// Always try to inline if there is at most one call to the block.
+	if (_block.pushTagCount == 1)
+		return exitJump;
+
+	// Always inline small blocks.
+	if (static_cast<size_t>(_block.items.size()) <= m_inlineMaxOpcodes)
+		return exitJump;
+
+	return nullopt;
+}
+
+
 void Inliner::optimise()
 {
 	std::map<u256, InlinableBlock> inlinableBlocks = determineInlinableBlocks(m_items);
@@ -134,11 +156,21 @@ void Inliner::optimise()
 		{
 			AssemblyItem const& nextItem = *next(it);
 			if (item.type() == PushTag && nextItem == Instruction::JUMP)
-				if (auto const *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
-					if (auto jumpType = determineJumpType(nextItem.getJumpType(), inlinableBlock->items.back().getJumpType()))
+				if (auto *inlinableBlock = util::valueOrNullptr(inlinableBlocks, item.data()))
+					if (auto exitJump = shouldInline(item.data(), nextItem, *inlinableBlock))
 					{
-						newItems += inlinableBlock->items;
-						newItems.back().setJumpType(*jumpType);
+						newItems += ranges::views::drop_last(inlinableBlock->items, 1);
+						newItems.emplace_back(*exitJump);
+
+						// We are removing one push tag to the block we inline.
+						--inlinableBlock->pushTagCount;
+						// We might increase the number of push tags to other blocks.
+						for (AssemblyItem const& inlinedItem: inlinableBlock->items)
+							if (inlinedItem.type() == PushTag)
+								if (auto* block = util::valueOrNullptr(inlinableBlocks, inlinedItem.data()))
+									++block->pushTagCount;
+
+						// Skip the original jump to the inlined tag and continue.
 						++it;
 						continue;
 					}

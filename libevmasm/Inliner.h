@@ -47,6 +47,8 @@ private:
 	};
 
 	bool isInlineCandidate(u256 const& _tag, InlinableBlock const& _block) const;
+	/// @returns the exit jump for the block to be inlined, if a particular jump to it should be inlined, otherwise nullopt.
+	std::optional<AssemblyItem> shouldInline(u256 const& _tag, AssemblyItem const& _jump, InlinableBlock const& _block) const;
 	std::map<u256, InlinableBlock> determineInlinableBlocks(AssemblyItems const& _items) const;
 
 	AssemblyItems& m_items;
