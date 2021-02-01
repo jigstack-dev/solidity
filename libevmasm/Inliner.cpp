@@ -44,8 +44,7 @@ bool Inliner::isInlineCandidate(u256 const& _tag, InlinableBlock const& _block) 
 
 	// Never inline tags that reference themselves.
 	for (AssemblyItem const& item: _block.items)
-		if (item.type() == PushTag)
-			if (_tag == item.data())
+		if (item.type() == PushTag && _tag == item.data())
 				return false;
 
 	return true;
@@ -63,14 +62,11 @@ map<u256, Inliner::InlinableBlock> Inliner::determineInlinableBlocks(AssemblyIte
 			numPushTags[item.data()]++;
 
 		// We can only inline blocks with straight control flow that end in a jump.
-		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, true))
+		// Using breaksCSEAnalysisBlock will hopefully allow the return jump to be optimized after inlining.
+		if (lastTag && SemanticInformation::breaksCSEAnalysisBlock(item, false))
 		{
 			if (item == Instruction::JUMP)
-				inlinableBlockItems.emplace(
-					piecewise_construct,
-					forward_as_tuple(_items[*lastTag].data()),
-					forward_as_tuple(_items | ranges::views::slice(*lastTag + 1, index + 1))
-				);
+				inlinableBlockItems[_items[*lastTag].data()] = _items | ranges::views::slice(*lastTag + 1, index + 1);
 			lastTag.reset();
 		}
 

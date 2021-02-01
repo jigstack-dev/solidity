@@ -80,7 +80,7 @@ explanatory purposes.
           details: {
             // peephole defaults to "true"
             peephole: true,
-            // maximum inline size defaults to 6
+            // maximum inline size defaults to 5
             maxInlineSize: 5,
             // jumpdestRemover defaults to "true"
             jumpdestRemover: true,
