@@ -25,6 +25,7 @@
 
 #include <libevmasm/CommonSubexpressionEliminator.h>
 #include <libevmasm/PeepholeOptimiser.h>
+#include <libevmasm/Inliner.h>
 #include <libevmasm/JumpdestRemover.h>
 #include <libevmasm/ControlFlowGraph.h>
 #include <libevmasm/BlockDeduplicator.h>
@@ -1475,6 +1476,56 @@ BOOST_AUTO_TEST_CASE(cse_replace_too_large_shift)
 		u256(255),
 		Instruction::SHR
 	});
+}
+
+BOOST_AUTO_TEST_CASE(inliner)
+{
+	AssemblyItems items{
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMP,
+		AssemblyItem(Tag, 1),
+		Instruction::CALLVALUE,
+		Instruction::JUMP,
+	};
+	AssemblyItems expectation{
+		Instruction::CALLVALUE,
+		Instruction::JUMP,
+		AssemblyItem(Tag, 1),
+		Instruction::CALLVALUE,
+		Instruction::JUMP,
+	};
+	Inliner inliner(items, 5);
+	inliner.optimise();
+	BOOST_CHECK_EQUAL_COLLECTIONS(
+		items.begin(), items.end(),
+		expectation.begin(), expectation.end()
+	);
+}
+
+BOOST_AUTO_TEST_CASE(inliner_no_inline)
+{
+	AssemblyItems items{
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMP,
+		AssemblyItem(Tag, 1),
+		Instruction::CALLVALUE,
+		Instruction::JUMPI,
+		Instruction::JUMP,
+	};
+	AssemblyItems expectation{
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMP,
+		AssemblyItem(Tag, 1),
+		Instruction::CALLVALUE,
+		Instruction::JUMPI,
+		Instruction::JUMP,
+	};
+	Inliner inliner(items, 5);
+	inliner.optimise();
+	BOOST_CHECK_EQUAL_COLLECTIONS(
+		items.begin(), items.end(),
+		expectation.begin(), expectation.end()
+	);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
