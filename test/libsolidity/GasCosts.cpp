@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE(string_storage)
 		if (CommonOptions::get().useABIEncoderV1)
 			CHECK_DEPLOY_GAS(133045, 129731, evmVersion);
 		else
-			CHECK_DEPLOY_GAS(155553, 132103, evmVersion);
+			CHECK_DEPLOY_GAS(155553, 132107, evmVersion);
 	}
 	// This is only correct on >=Constantinople.
 	else if (!CommonOptions::get().useABIEncoderV1)
@@ -110,9 +110,9 @@ BOOST_AUTO_TEST_CASE(string_storage)
 		{
 			// Costs with 0 are cases which cannot be triggered in tests.
 			if (evmVersion < EVMVersion::istanbul())
-				CHECK_DEPLOY_GAS(0, 120189, evmVersion);
+				CHECK_DEPLOY_GAS(0, 120193, evmVersion);
 			else
-				CHECK_DEPLOY_GAS(0, 108541, evmVersion);
+				CHECK_DEPLOY_GAS(0, 108545, evmVersion);
 		}
 		else
 		{
