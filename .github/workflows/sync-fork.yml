@@ -22,7 +22,7 @@ jobs:
         upstream_repository: ethereum/solidity
         upstream_branch: develop
         target_branch: develop
-        git_pull_args: --ff-only
+        git_pull_args: --allow-unrelated-histories
 
     - name: Timestamp
       run: date
