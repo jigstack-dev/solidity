@@ -120,7 +120,6 @@ static string const g_strAsm = "asm";
 static string const g_strAsmJson = "asm-json";
 static string const g_strAssemble = "assemble";
 static string const g_strAst = "ast";
-static string const g_strAstJson = "ast-json";
 static string const g_strAstCompactJson = "ast-compact-json";
 static string const g_strBinary = "bin";
 static string const g_strBinaryRuntime = "bin-runtime";
@@ -129,7 +128,6 @@ static string const g_strCompactJSON = "compact-format";
 static string const g_strContracts = "contracts";
 static string const g_strErrorRecovery = "error-recovery";
 static string const g_strEVM = "evm";
-static string const g_strEVM15 = "evm15";
 static string const g_strEVMVersion = "evm-version";
 static string const g_strEwasm = "ewasm";
 static string const g_strExperimentalViaIR = "experimental-via-ir";
@@ -203,7 +201,6 @@ static string const g_argAsm = g_strAsm;
 static string const g_argAsmJson = g_strAsmJson;
 static string const g_argAssemble = g_strAssemble;
 static string const g_argAstCompactJson = g_strAstCompactJson;
-static string const g_argAstJson = g_strAstJson;
 static string const g_argBinary = g_strBinary;
 static string const g_argBinaryRuntime = g_strBinaryRuntime;
 static string const g_argCombinedJson = g_strCombinedJson;
@@ -270,7 +267,6 @@ static set<string> const g_combinedJsonArgs
 static set<string> const g_machineArgs
 {
 	g_strEVM,
-	g_strEVM15,
 	g_strEwasm
 };
 
@@ -318,7 +314,6 @@ static bool needsHumanTargetedStdout(po::variables_map const& _args)
 		g_argAbi,
 		g_argAsm,
 		g_argAsmJson,
-		g_argAstJson,
 		g_argBinary,
 		g_argBinaryRuntime,
 		g_argMetadata,
@@ -974,7 +969,6 @@ General Information)").c_str(),
 
 	po::options_description outputComponents("Output Components");
 	outputComponents.add_options()
-		(g_argAstJson.c_str(), "AST of all source files in JSON format.")
 		(g_argAstCompactJson.c_str(), "AST of all source files in a compact JSON format.")
 		(g_argAsm.c_str(), "EVM assembly of the contracts.")
 		(g_argAsmJson.c_str(), "EVM assembly of the contracts in JSON format.")
@@ -1386,8 +1380,6 @@ bool CommandLineInterface::processInput()
 			string machine = m_args[g_argMachine].as<string>();
 			if (machine == g_strEVM)
 				targetMachine = Machine::EVM;
-			else if (machine == g_strEVM15)
-				targetMachine = Machine::EVM15;
 			else if (machine == g_strEwasm)
 				targetMachine = Machine::Ewasm;
 			else
@@ -1942,7 +1934,6 @@ bool CommandLineInterface::assemble(
 	{
 		string machine =
 			_targetMachine == yul::AssemblyStack::Machine::EVM ? "EVM" :
-			_targetMachine == yul::AssemblyStack::Machine::EVM15 ? "EVM 1.5" :
 			"Ewasm";
 		sout() << endl << "======= " << src.first << " (" << machine << ") =======" << endl;
 

@@ -583,13 +583,18 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 
 	if (auto referenceType = dynamic_cast<ReferenceType const*>(varType))
 	{
-		auto result = referenceType->validForLocation(referenceType->location());
+		BoolResult result = referenceType->validForLocation(referenceType->location());
 		if (result)
 		{
 			bool isLibraryStorageParameter = (_variable.isLibraryFunctionParameter() && referenceType->location() == DataLocation::Storage);
 			bool callDataCheckRequired = ((_variable.isConstructorParameter() || _variable.isPublicCallableParameter()) && !isLibraryStorageParameter);
 			if (callDataCheckRequired)
-				result = referenceType->validForLocation(DataLocation::CallData);
+			{
+				if (!referenceType->interfaceType(false))
+					solAssert(m_errorReporter.hasErrors(), "");
+				else
+					result = referenceType->validForLocation(DataLocation::CallData);
+			}
 		}
 		if (!result)
 		{
@@ -1636,20 +1641,13 @@ void TypeChecker::endVisit(BinaryOperation const& _operation)
 			leftType->category() == Type::Category::RationalNumber &&
 			rightType->category() != Type::Category::RationalNumber
 		)
-			if ((
-				commonType->category() == Type::Category::Integer &&
-				dynamic_cast<IntegerType const&>(*commonType).numBits() != 256
-			) || (
-				commonType->category() == Type::Category::FixedPoint &&
-				dynamic_cast<FixedPointType const&>(*commonType).numBits() != 256
-			))
-				m_errorReporter.warning(
-					9085_error,
-					_operation.location(),
-					"Result of " + operation + " has type " + commonType->toString() + " and thus "
-					"might overflow. Silence this warning by converting the literal to the "
-					"expected type."
-				);
+		{
+			// These rules are enforced by the binary operator, but assert them here too.
+			if (auto type = dynamic_cast<IntegerType const*>(commonType))
+				solAssert(type->numBits() == 256, "");
+			if (auto type = dynamic_cast<FixedPointType const*>(commonType))
+				solAssert(type->numBits() == 256, "");
+		}
 		if (
 			commonType->category() == Type::Category::Integer &&
 			rightType->category() == Type::Category::Integer &&
@@ -2082,7 +2080,10 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				".";
 
 			if (isStructConstructorCall)
-				return { isVariadic ? 1123_error : 9755_error, msg };
+			{
+				solAssert(!isVariadic, "");
+				return { 9755_error, msg };
+			}
 			else if (
 				_functionType->kind() == FunctionType::Kind::BareCall ||
 				_functionType->kind() == FunctionType::Kind::BareCallCode ||
@@ -2090,16 +2091,17 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				_functionType->kind() == FunctionType::Kind::BareStaticCall
 			)
 			{
+				solAssert(!isVariadic, "");
 				if (arguments.empty())
 					return {
-						isVariadic ? 7653_error : 6138_error,
+						6138_error,
 						msg +
 						" This function requires a single bytes argument."
 						" Use \"\" as argument to provide empty calldata."
 					};
 				else
 					return {
-						isVariadic ? 9390_error : 8922_error,
+						8922_error,
 						msg +
 						" This function requires a single bytes argument."
 						" If all your arguments are value types, you can use"
@@ -2111,13 +2113,16 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				_functionType->kind() == FunctionType::Kind::SHA256 ||
 				_functionType->kind() == FunctionType::Kind::RIPEMD160
 			)
+			{
+				solAssert(!isVariadic, "");
 				return {
-					isVariadic ? 1220_error : 4323_error,
+					4323_error,
 					msg +
 					" This function requires a single bytes argument."
 					" Use abi.encodePacked(...) to obtain the pre-0.5.0"
 					" behaviour or abi.encode(...) to use ABI encoding."
 				};
+			}
 			else
 				return { isVariadic ? 9308_error : 6160_error, msg };
 		}();
@@ -2345,10 +2350,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			*_functionCall.expression().annotation().isPure &&
 			functionType->isPure();
 
-		if (
-			functionType->kind() == FunctionType::Kind::ArrayPush ||
-			functionType->kind() == FunctionType::Kind::ByteArrayPush
-		)
+		if (functionType->kind() == FunctionType::Kind::ArrayPush)
 			isLValue = functionType->parameterTypes().empty();
 
 		break;

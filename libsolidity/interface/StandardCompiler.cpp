@@ -580,6 +580,8 @@ std::variant<OptimiserSettings, Json::Value> parseOptimizerSettings(Json::Value 
 
 		if (auto error = checkOptimizerDetail(details, "peephole", settings.runPeephole))
 			return *error;
+		if (auto error = checkOptimizerDetail(details, "inliner", settings.runInliner))
+			return *error;
 		if (auto error = checkOptimizerDetail(details, "jumpdestRemover", settings.runJumpdestRemover))
 			return *error;
 		if (auto error = checkOptimizerDetail(details, "orderLiterals", settings.runOrderLiterals))
@@ -1273,7 +1275,7 @@ Json::Value StandardCompiler::compileYul(InputsAndSettings _inputsAndSettings)
 
 	MachineAssemblyObject object;
 	MachineAssemblyObject runtimeObject;
-	tie(object, runtimeObject) = stack.assembleAndGuessRuntime();
+	tie(object, runtimeObject) = stack.assembleWithDeployed();
 
 	if (object.bytecode)
 		object.bytecode->link(_inputsAndSettings.libraries);

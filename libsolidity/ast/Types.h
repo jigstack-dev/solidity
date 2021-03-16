@@ -100,15 +100,20 @@ class MemberList
 public:
 	struct Member
 	{
-		Member(std::string _name, Type const* _type, Declaration const* _declaration = nullptr):
-			name(std::move(_name)),
+		/// Manual constructor for members that are not taken from a declaration.
+		Member(char const* _name, Type const* _type):
+			name(_name),
 			type(_type),
-			declaration(_declaration)
+			declaration(nullptr)
 		{
 		}
 
+		/// Constructs a Member with the name extracted from @p _declaration's name.
+		Member(Declaration const* _declaration, Type const* _type);
+		Member(Declaration const* _declaration, Type const* _type, std::string _name);
+
 		std::string name;
-		Type const* type;
+		Type const* type = nullptr;
 		Declaration const* declaration = nullptr;
 	};
 
@@ -764,6 +769,8 @@ public:
 	bool isPointer() const;
 
 	/// @returns true if this is valid to be stored in data location _loc
+	/// The function mostly checks sizes. For calldata, this should only be called
+	/// if the type has an interfaceType.
 	virtual BoolResult validForLocation(DataLocation _loc) const = 0;
 
 	bool operator==(ReferenceType const& _other) const
@@ -1152,7 +1159,6 @@ public:
 		MulMod, ///< MULMOD
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
-		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()

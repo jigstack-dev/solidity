@@ -38,6 +38,7 @@
 #include <z3_version.h>
 #endif
 
+#include <charconv>
 #include <queue>
 
 using namespace std;
@@ -774,7 +775,7 @@ void CHC::makeArrayPopVerificationTarget(FunctionCall const& _arrayPop)
 	FunctionType const& funType = dynamic_cast<FunctionType const&>(*_arrayPop.expression().annotation().type);
 	solAssert(funType.kind() == FunctionType::Kind::ArrayPop, "");
 
-	auto memberAccess = dynamic_cast<MemberAccess const*>(&_arrayPop.expression());
+	auto memberAccess = dynamic_cast<MemberAccess const*>(cleanExpression(_arrayPop.expression()));
 	solAssert(memberAccess, "");
 	auto symbArray = dynamic_pointer_cast<SymbolicArrayVariable>(m_context.expression(memberAccess->expression()));
 	solAssert(symbArray, "");
@@ -880,8 +881,7 @@ void CHC::resetContractAnalysis()
 
 void CHC::eraseKnowledge()
 {
-	resetStateVariables();
-	m_context.resetVariables([&](VariableDeclaration const& _variable) { return _variable.hasReferenceOrMappingType(); });
+	resetStorageVariables();
 }
 
 void CHC::clearIndices(ContractDefinition const* _contract, FunctionDefinition const* _function)
@@ -937,9 +937,9 @@ SortPointer CHC::sort(ASTNode const* _node)
 	return functionBodySort(*m_currentFunction, m_currentContract, state());
 }
 
-Predicate const* CHC::createSymbolicBlock(SortPointer _sort, string const& _name, PredicateType _predType, ASTNode const* _node)
+Predicate const* CHC::createSymbolicBlock(SortPointer _sort, string const& _name, PredicateType _predType, ASTNode const* _node, ContractDefinition const* _contractContext)
 {
-	auto const* block = Predicate::create(_sort, _name, _predType, m_context, _node);
+	auto const* block = Predicate::create(_sort, _name, _predType, m_context, _node, _contractContext);
 	m_interface->registerRelation(block->functor());
 	return block;
 }
@@ -950,8 +950,8 @@ void CHC::defineInterfacesAndSummaries(SourceUnit const& _source)
 		if (auto const* contract = dynamic_cast<ContractDefinition const*>(node.get()))
 		{
 			string suffix = contract->name() + "_" + to_string(contract->id());
-			m_interfaces[contract] = createSymbolicBlock(interfaceSort(*contract, state()), "interface_" + suffix, PredicateType::Interface, contract);
-			m_nondetInterfaces[contract] = createSymbolicBlock(nondetInterfaceSort(*contract, state()), "nondet_interface_" + suffix, PredicateType::NondetInterface, contract);
+			m_interfaces[contract] = createSymbolicBlock(interfaceSort(*contract, state()), "interface_" + uniquePrefix() + "_" + suffix, PredicateType::Interface, contract);
+			m_nondetInterfaces[contract] = createSymbolicBlock(nondetInterfaceSort(*contract, state()), "nondet_interface_" + uniquePrefix() + "_" + suffix, PredicateType::NondetInterface, contract);
 			m_constructorSummaries[contract] = createConstructorBlock(*contract, "summary_constructor");
 			m_contractInitializers[contract] = createConstructorBlock(*contract, "contract_initializer");
 
@@ -1082,7 +1082,8 @@ Predicate const* CHC::createBlock(ASTNode const* _node, PredicateType _predType,
 		sort(_node),
 		"block_" + uniquePrefix() + "_" + _prefix + predicateName(_node),
 		_predType,
-		_node
+		_node,
+		m_currentContract
 	);
 
 	solAssert(m_currentFunction, "");
@@ -1095,7 +1096,8 @@ Predicate const* CHC::createSummaryBlock(FunctionDefinition const& _function, Co
 		functionSort(_function, &_contract, state()),
 		"summary_" + uniquePrefix() + "_" + predicateName(&_function, &_contract),
 		_type,
-		&_function
+		&_function,
+		&_contract
 	);
 }
 
@@ -1103,8 +1105,9 @@ Predicate const* CHC::createConstructorBlock(ContractDefinition const& _contract
 {
 	return createSymbolicBlock(
 		constructorSort(_contract, state()),
-		_prefix + "_" + contractSuffix(_contract) + "_" + uniquePrefix(),
+		_prefix + "_" + uniquePrefix() + "_" + contractSuffix(_contract),
 		PredicateType::ConstructorSummary,
+		&_contract,
 		&_contract
 	);
 }
@@ -1620,7 +1623,30 @@ map<unsigned, vector<unsigned>> CHC::summaryCalls(CHCSolverInterface::CexGraph c
 	map<unsigned, vector<unsigned>> calls;
 
 	auto compare = [&](unsigned _a, unsigned _b) {
-		return _graph.nodes.at(_a).name > _graph.nodes.at(_b).name;
+		auto extract = [&](string const& _s) {
+			// We want to sort sibling predicates in the counterexample graph by their unique predicate id.
+			// For most predicates, this actually doesn't matter.
+			// The cases where this matters are internal and external function calls which have the form:
+			// summary_<CALLID>_<suffix>
+			// nondet_call_<CALLID>_<suffix>
+			// Those have the extra unique <CALLID> numbers based on the traversal order, and are necessary
+			// to infer the call order so that's shown property in the counterexample trace.
+			// Predicates that do not have a CALLID have a predicate id at the end of <suffix>,
+			// so the assertion below should still hold.
+			auto beg = _s.data();
+			while (beg != _s.data() + _s.size() && !isdigit(*beg)) ++beg;
+			auto end = beg;
+			while (end != _s.data() + _s.size() && isdigit(*end)) ++end;
+
+			solAssert(beg != end, "Expected to find numerical call or predicate id.");
+
+			int result;
+			auto [p, ec] = std::from_chars(beg, end, result);
+			solAssert(ec == std::errc(), "Id should be a number.");
+
+			return result;
+		};
+		return extract(_graph.nodes.at(_a).name) > extract(_graph.nodes.at(_b).name);
 	};
 
 	queue<pair<unsigned, unsigned>> q;
@@ -1689,11 +1715,6 @@ unsigned CHC::newErrorId()
 	if (errorId == 0)
 		errorId = m_context.newUniqueId();
 	return errorId;
-}
-
-SymbolicState& CHC::state()
-{
-	return m_context.state();
 }
 
 SymbolicIntVariable& CHC::errorFlag()

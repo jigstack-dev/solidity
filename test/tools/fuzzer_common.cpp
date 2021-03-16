@@ -81,7 +81,13 @@ void FuzzerUtil::forceSMT(StringMap& _input)
 			sourceUnit.second += smtPragma;
 }
 
-void FuzzerUtil::testCompiler(StringMap& _input, bool _optimize, unsigned _rand, bool _forceSMT)
+void FuzzerUtil::testCompiler(
+	StringMap& _input,
+	bool _optimize,
+	unsigned _rand,
+	bool _forceSMT,
+	bool _compileViaYul
+)
 {
 	frontend::CompilerStack compiler;
 	EVMVersion evmVersion = s_evmVersions[_rand % s_evmVersions.size()];
@@ -98,6 +104,7 @@ void FuzzerUtil::testCompiler(StringMap& _input, bool _optimize, unsigned _rand,
 	compiler.setSources(_input);
 	compiler.setEVMVersion(evmVersion);
 	compiler.setOptimiserSettings(optimiserSettings);
+	compiler.enableIRGeneration(_compileViaYul);
 	try
 	{
 		compiler.compile();
@@ -132,7 +139,7 @@ void FuzzerUtil::runCompiler(string const& _input, bool _quiet)
 	{
 		string msg{"Compiler produced invalid JSON output."};
 		cout << msg << endl;
-		throw std::runtime_error(std::move(msg));
+		BOOST_THROW_EXCEPTION(std::runtime_error(std::move(msg)));
 	}
 	if (output.isMember("errors"))
 		for (auto const& error: output["errors"])
@@ -145,7 +152,7 @@ void FuzzerUtil::runCompiler(string const& _input, bool _quiet)
 			{
 				string msg = "Invalid error: \"" + error["type"].asString() + "\"";
 				cout << msg << endl;
-				throw std::runtime_error(std::move(msg));
+				BOOST_THROW_EXCEPTION(std::runtime_error(std::move(msg)));
 			}
 		}
 }

@@ -13,9 +13,12 @@
 */
 
 #include <test/libsolidity/SemanticTest.h>
+
 #include <libsolutil/Whiskers.h>
 #include <libyul/Exceptions.h>
 #include <test/Common.h>
+#include <test/libsolidity/util/BytesUtils.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
@@ -25,7 +28,9 @@
 #include <cctype>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <utility>
 
 using namespace std;
 using namespace solidity;
@@ -40,12 +45,21 @@ using namespace boost::unit_test;
 namespace fs = boost::filesystem;
 
 
-SemanticTest::SemanticTest(string const& _filename, langutil::EVMVersion _evmVersion, vector<boost::filesystem::path> const& _vmPaths, bool enforceViaYul):
+SemanticTest::SemanticTest(
+	string const& _filename,
+	langutil::EVMVersion _evmVersion,
+	vector<boost::filesystem::path> const& _vmPaths,
+	bool _enforceViaYul,
+	bool _enforceGasCost,
+	u256 _enforceGasCostMinValue
+):
 	SolidityExecutionFramework(_evmVersion, _vmPaths),
 	EVMVersionRestrictedTestCase(_filename),
 	m_sources(m_reader.sources()),
 	m_lineOffset(m_reader.lineNumber()),
-	m_enforceViaYul(enforceViaYul)
+	m_enforceViaYul(_enforceViaYul),
+	m_enforceGasCost(_enforceGasCost),
+	m_enforceGasCostMinValue(_enforceGasCostMinValue)
 {
 	string choice = m_reader.stringSetting("compileViaYul", "default");
 	if (choice == "also")
@@ -100,6 +114,12 @@ SemanticTest::SemanticTest(string const& _filename, langutil::EVMVersion _evmVer
 
 	parseExpectations(m_reader.stream());
 	soltestAssert(!m_tests.empty(), "No tests specified in " + _filename);
+
+	if (m_enforceGasCost)
+	{
+		m_compiler.setMetadataFormat(CompilerStack::MetadataFormat::NoMetadata);
+		m_compiler.setMetadataHash(CompilerStack::MetadataHash::None);
+	}
 }
 
 TestCase::TestResult SemanticTest::run(ostream& _stream, string const& _linePrefix, bool _formatted)
@@ -119,9 +139,16 @@ TestCase::TestResult SemanticTest::run(ostream& _stream, string const& _linePref
 	return result;
 }
 
-TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _linePrefix, bool _formatted, bool _compileViaYul, bool _compileToEwasm)
+TestCase::TestResult SemanticTest::runTest(
+	ostream& _stream,
+	string const& _linePrefix,
+	bool _formatted,
+	bool _compileViaYul,
+	bool _compileToEwasm
+)
 {
 	bool success = true;
+	m_gasCostFailure = false;
 
 	if (_compileViaYul && _compileToEwasm)
 		selectVM(evmc_capabilities::EVMC_CAPABILITY_EWASM);
@@ -142,21 +169,25 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 	if (_compileViaYul)
 		AnsiColorized(_stream, _formatted, {BOLD, CYAN}) << _linePrefix << "Running via Yul:" << endl;
 
-	for (auto& test: m_tests)
+	for (TestFunctionCall& test: m_tests)
 		test.reset();
 
 	map<string, solidity::test::Address> libraries;
 
 	bool constructed = false;
 
-	for (auto& test: m_tests)
+	for (TestFunctionCall& test: m_tests)
 	{
 		if (constructed)
 		{
-			soltestAssert(test.call().kind != FunctionCall::Kind::Library, "Libraries have to be deployed before any other call.");
+			soltestAssert(
+				test.call().kind != FunctionCall::Kind::Library,
+				"Libraries have to be deployed before any other call."
+			);
 			soltestAssert(
 				test.call().kind != FunctionCall::Kind::Constructor,
-				"Constructor has to be the first function call expect for library deployments.");
+				"Constructor has to be the first function call expect for library deployments."
+			);
 		}
 		else if (test.call().kind == FunctionCall::Kind::Library)
 		{
@@ -188,6 +219,8 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 		{
 			if (m_transactionSuccessful == test.call().expectations.failure)
 				success = false;
+			if (success && !checkGasCostExpectation(test, _compileViaYul))
+				m_gasCostFailure = true;
 
 			test.setFailure(!m_transactionSuccessful);
 			test.setRawBytes(bytes());
@@ -197,6 +230,17 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 			bytes output;
 			if (test.call().kind == FunctionCall::Kind::LowLevel)
 				output = callLowLevel(test.call().arguments.rawBytes(), test.call().value.value);
+			else if (test.call().kind == FunctionCall::Kind::Builtin)
+			{
+				std::optional<bytes> builtinOutput = m_builtins.at(test.call().signature)(test.call());
+				if (builtinOutput.has_value())
+				{
+					m_transactionSuccessful = true;
+					output = builtinOutput.value();
+				}
+				else
+					m_transactionSuccessful = false;
+			}
 			else
 			{
 				soltestAssert(
@@ -213,6 +257,12 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 			}
 
 			bool outputMismatch = (output != test.call().expectations.rawBytes());
+			if (!outputMismatch && !checkGasCostExpectation(test, _compileViaYul))
+			{
+				success = false;
+				m_gasCostFailure = true;
+			}
+
 			// Pre byzantium, it was not possible to return failure data, so we disregard
 			// output mismatch for those EVM versions.
 			if (test.call().expectations.failure && !m_transactionSuccessful && !m_evmVersion.supportsReturndata())
@@ -241,18 +291,30 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 	if (!success && (m_runWithYul || !_compileViaYul))
 	{
 		AnsiColorized(_stream, _formatted, {BOLD, CYAN}) << _linePrefix << "Expected result:" << endl;
-		for (auto const& test: m_tests)
+		for (TestFunctionCall const& test: m_tests)
 		{
 			ErrorReporter errorReporter;
-			_stream << test.format(errorReporter, _linePrefix, false, _formatted) << endl;
+			_stream << test.format(
+				errorReporter,
+				_linePrefix,
+				TestFunctionCall::RenderMode::ExpectedValuesExpectedGas,
+				_formatted,
+				/* _interactivePrint */ true
+			) << endl;
 			_stream << errorReporter.format(_linePrefix, _formatted);
 		}
 		_stream << endl;
 		AnsiColorized(_stream, _formatted, {BOLD, CYAN}) << _linePrefix << "Obtained result:" << endl;
-		for (auto const& test: m_tests)
+		for (TestFunctionCall const& test: m_tests)
 		{
 			ErrorReporter errorReporter;
-			_stream << test.format(errorReporter, _linePrefix, true, _formatted) << endl;
+			_stream << test.format(
+				errorReporter,
+				_linePrefix,
+				m_gasCostFailure ? TestFunctionCall::RenderMode::ExpectedValuesActualGas : TestFunctionCall::RenderMode::ActualValuesExpectedGas,
+				_formatted,
+				/* _interactivePrint */ true
+			) << endl;
 			_stream << errorReporter.format(_linePrefix, _formatted);
 		}
 		AnsiColorized(_stream, _formatted, {BOLD, RED})
@@ -272,6 +334,33 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 	}
 
 	return TestResult::Success;
+}
+
+bool SemanticTest::checkGasCostExpectation(TestFunctionCall& io_test, bool _compileViaYul) const
+{
+	string setting =
+		(_compileViaYul ? "ir"s : "legacy"s) +
+		(m_optimiserSettings == OptimiserSettings::full() ? "Optimized" : "");
+
+	// We don't check gas if enforce gas cost is not active
+	// or test is run with abi encoder v1 only
+	// or gas used less than threshold for enforcing feature
+	// or setting is "ir" and it's not included in expectations
+	if (
+		!m_enforceGasCost ||
+		(
+			(setting == "ir" || m_gasUsed < m_enforceGasCostMinValue || m_gasUsed >= m_gas) &&
+			io_test.call().expectations.gasUsed.count(setting) == 0
+		)
+	)
+		return true;
+
+	solAssert(!m_runWithABIEncoderV1Only, "");
+
+	io_test.setGasCost(setting, m_gasUsed);
+	return
+		io_test.call().expectations.gasUsed.count(setting) > 0 &&
+		m_gasUsed == io_test.call().expectations.gasUsed.at(setting);
 }
 
 void SemanticTest::printSource(ostream& _stream, string const& _linePrefix, bool _formatted) const
@@ -320,8 +409,12 @@ void SemanticTest::printSource(ostream& _stream, string const& _linePrefix, bool
 
 void SemanticTest::printUpdatedExpectations(ostream& _stream, string const&) const
 {
-	for (auto const& test: m_tests)
-		_stream << test.format("", true, false) << endl;
+	for (TestFunctionCall const& test: m_tests)
+		_stream << test.format(
+			"",
+			m_gasCostFailure ? TestFunctionCall::RenderMode::ExpectedValuesActualGas : TestFunctionCall::RenderMode::ActualValuesExpectedGas,
+			/* _highlight = */ false
+		) << endl;
 }
 
 void SemanticTest::printUpdatedSettings(ostream& _stream, string const& _linePrefix)
@@ -340,12 +433,16 @@ void SemanticTest::printUpdatedSettings(ostream& _stream, string const& _linePre
 
 void SemanticTest::parseExpectations(istream& _stream)
 {
-	TestFileParser parser{_stream};
-	auto functionCalls = parser.parseFunctionCalls(m_lineOffset);
-	std::move(functionCalls.begin(), functionCalls.end(), back_inserter(m_tests));
+	TestFileParser parser{_stream, m_builtins};
+	m_tests += parser.parseFunctionCalls(m_lineOffset);
 }
 
-bool SemanticTest::deploy(string const& _contractName, u256 const& _value, bytes const& _arguments, map<string, solidity::test::Address> const& _libraries)
+bool SemanticTest::deploy(
+	string const& _contractName,
+	u256 const& _value,
+	bytes const& _arguments,
+	map<string, solidity::test::Address> const& _libraries
+)
 {
 	auto output = compileAndRunWithoutCheck(m_sources.sources, _value, _contractName, _arguments, _libraries);
 	return !output.empty() && m_transactionSuccessful;

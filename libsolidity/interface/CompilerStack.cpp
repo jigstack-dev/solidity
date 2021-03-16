@@ -341,9 +341,9 @@ bool CompilerStack::analyze()
 			if (source->ast && !syntaxChecker.checkSyntax(*source->ast))
 				noErrors = false;
 
-		DocStringTagParser DocStringTagParser(m_errorReporter);
+		DocStringTagParser docStringTagParser(m_errorReporter);
 		for (Source const* source: m_sourceOrder)
-			if (source->ast && !DocStringTagParser.parseDocStrings(*source->ast))
+			if (source->ast && !docStringTagParser.parseDocStrings(*source->ast))
 				noErrors = false;
 
 		m_globalContext = make_shared<GlobalContext>();
@@ -387,7 +387,7 @@ bool CompilerStack::analyze()
 			if (source->ast && !docStringAnalyser.analyseDocStrings(*source->ast))
 				noErrors = false;
 
-		// New we run full type checks that go down to the expression level. This
+		// Now we run full type checks that go down to the expression level. This
 		// cannot be done earlier, because we need cross-contract types and information
 		// about whether a contract is abstract for the `new` expression.
 		// This populates the `type` annotation for all expressions.
@@ -398,6 +398,29 @@ bool CompilerStack::analyze()
 		for (Source const* source: m_sourceOrder)
 			if (source->ast && !typeChecker.checkTypeRequirements(*source->ast))
 				noErrors = false;
+
+		if (noErrors)
+		{
+			for (Source const* source: m_sourceOrder)
+				if (source->ast)
+					for (ASTPointer<ASTNode> const& node: source->ast->nodes())
+						if (auto const* contractDefinition = dynamic_cast<ContractDefinition*>(node.get()))
+						{
+							Contract& contractState = m_contracts.at(contractDefinition->fullyQualifiedName());
+
+							contractState.contract->annotation().creationCallGraph = make_unique<CallGraph>(
+								FunctionCallGraphBuilder::buildCreationGraph(
+									*contractDefinition
+								)
+							);
+							contractState.contract->annotation().deployedCallGraph = make_unique<CallGraph>(
+								FunctionCallGraphBuilder::buildDeployedGraph(
+									*contractDefinition,
+									**contractState.contract->annotation().creationCallGraph
+								)
+							);
+						}
+		}
 
 		if (noErrors)
 		{
@@ -1302,7 +1325,7 @@ void CompilerStack::generateEVMFromIR(ContractDefinition const& _contract)
 	// TODO: use stack.assemble here!
 	yul::MachineAssemblyObject init;
 	yul::MachineAssemblyObject runtime;
-	std::tie(init, runtime) = stack.assembleAndGuessRuntime();
+	std::tie(init, runtime) = stack.assembleWithDeployed(IRNames::deployedObject(_contract));
 	compiledContract.object = std::move(*init.bytecode);
 	compiledContract.runtimeObject = std::move(*runtime.bytecode);
 	// TODO: refactor assemblyItems, runtimeAssemblyItems, generatedSources,
@@ -1445,6 +1468,7 @@ string CompilerStack::createMetadata(Contract const& _contract) const
 		Json::Value details{Json::objectValue};
 
 		details["orderLiterals"] = m_optimiserSettings.runOrderLiterals;
+		details["inliner"] = m_optimiserSettings.runInliner;
 		details["jumpdestRemover"] = m_optimiserSettings.runJumpdestRemover;
 		details["peephole"] = m_optimiserSettings.runPeephole;
 		details["deduplicate"] = m_optimiserSettings.runDeduplicate;
@@ -1579,6 +1603,9 @@ private:
 
 bytes CompilerStack::createCBORMetadata(Contract const& _contract) const
 {
+	if (m_metadataFormat == MetadataFormat::NoMetadata)
+		return bytes{};
+
 	bool const experimentalMode = !onlySafeExperimentalFeaturesActivated(
 		_contract.contract->sourceUnit().annotation().experimentalFeatures
 	);
@@ -1596,10 +1623,16 @@ bytes CompilerStack::createCBORMetadata(Contract const& _contract) const
 
 	if (experimentalMode || m_viaIR)
 		encoder.pushBool("experimental", true);
-	if (m_release)
+	if (m_metadataFormat == MetadataFormat::WithReleaseVersionTag)
 		encoder.pushBytes("solc", VersionCompactBytes);
 	else
+	{
+		solAssert(
+			m_metadataFormat == MetadataFormat::WithPrereleaseVersionTag,
+			"Invalid metadata format."
+		);
 		encoder.pushString("solc", VersionStringStrict);
+	}
 	return encoder.serialise();
 }
 

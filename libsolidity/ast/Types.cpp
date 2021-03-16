@@ -111,6 +111,17 @@ util::Result<TypePointers> transformParametersToExternal(TypePointers const& _pa
 
 }
 
+MemberList::Member::Member(Declaration const* _declaration, Type const* _type):
+	Member(_declaration, _type, _declaration->name())
+{}
+
+MemberList::Member::Member(Declaration const* _declaration, Type const* _type, string _name):
+	name(move(_name)),
+	type(_type),
+	declaration(_declaration)
+{
+}
+
 void Type::clearCache() const
 {
 	m_members.clear();
@@ -365,7 +376,7 @@ MemberList::MemberMap Type::boundFunctions(Type const& _type, ASTNode const& _sc
 			FunctionTypePointer fun =
 				dynamic_cast<FunctionType const&>(*function->typeViaContractName()).asBoundFunction();
 			if (_type.isImplicitlyConvertibleTo(*fun->selfType()))
-				members.emplace_back(function->name(), fun, function);
+				members.emplace_back(function, fun);
 		}
 	}
 
@@ -1795,27 +1806,28 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 		members.emplace_back("length", TypeProvider::uint256());
 		if (isDynamicallySized() && location() == DataLocation::Storage)
 		{
+			Type const* thisAsPointer = TypeProvider::withLocation(this, location(), true);
 			members.emplace_back("push", TypeProvider::function(
-				TypePointers{},
+				TypePointers{thisAsPointer},
 				TypePointers{baseType()},
-				strings{},
 				strings{string()},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush
-			));
+				strings{string()},
+				FunctionType::Kind::ArrayPush
+			)->asBoundFunction());
 			members.emplace_back("push", TypeProvider::function(
-				TypePointers{baseType()},
+				TypePointers{thisAsPointer, baseType()},
 				TypePointers{},
-				strings{string()},
+				strings{string(),string()},
 				strings{},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush
-			));
+				FunctionType::Kind::ArrayPush
+			)->asBoundFunction());
 			members.emplace_back("pop", TypeProvider::function(
+				TypePointers{thisAsPointer},
 				TypePointers{},
-				TypePointers{},
-				strings{},
+				strings{string()},
 				strings{},
 				FunctionType::Kind::ArrayPop
-			));
+			)->asBoundFunction());
 		}
 	}
 	return members;
@@ -1985,9 +1997,8 @@ MemberList::MemberMap ContractType::nativeMembers(ASTNode const*) const
 	if (!m_contract.isLibrary())
 		for (auto const& it: m_contract.interfaceFunctions())
 			members.emplace_back(
-				it.second->declaration().name(),
-				it.second->asExternallyCallableFunction(m_contract.isLibrary()),
-				&it.second->declaration()
+				&it.second->declaration(),
+				it.second->asExternallyCallableFunction(m_contract.isLibrary())
 			);
 
 	return members;
@@ -2213,9 +2224,8 @@ MemberList::MemberMap StructType::nativeMembers(ASTNode const*) const
 		solAssert(type, "");
 		solAssert(!(location() != DataLocation::Storage && type->containsNestedMapping()), "");
 		members.emplace_back(
-			variable->name(),
-			copyForLocationIfReference(type),
-			variable.get()
+			variable.get(),
+			copyForLocationIfReference(type)
 		);
 	}
 	return members;
@@ -2627,11 +2637,13 @@ FunctionType::FunctionType(FunctionDefinition const& _function, Kind _kind):
 
 	for (ASTPointer<VariableDeclaration> const& var: _function.parameters())
 	{
+		solAssert(var->annotation().type, "Parameter type is not yet available in the AST.");
 		m_parameterNames.push_back(var->name());
 		m_parameterTypes.push_back(var->annotation().type);
 	}
 	for (ASTPointer<VariableDeclaration> const& var: _function.returnParameters())
 	{
+		solAssert(var->annotation().type, "Return parameter type is not yet available in the AST.");
 		m_returnParameterNames.push_back(var->name());
 		m_returnParameterTypes.push_back(var->annotation().type);
 	}
@@ -2865,7 +2877,6 @@ string FunctionType::richIdentifier() const
 	case Kind::MulMod: id += "mulmod"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
-	case Kind::ByteArrayPush: id += "bytearraypush"; break;
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
 	case Kind::Require: id += "require"; break;
@@ -3072,8 +3083,8 @@ vector<tuple<string, TypePointer>> FunctionType::makeStackItems() const
 		break;
 	case Kind::ArrayPush:
 	case Kind::ArrayPop:
-	case Kind::ByteArrayPush:
-		slots = {make_tuple("slot", TypeProvider::uint256())};
+		solAssert(bound(), "");
+		slots = {};
 		break;
 	default:
 		break;
@@ -3472,8 +3483,6 @@ TypePointer FunctionType::copyAndSetCallOptions(bool _setGas, bool _setValue, bo
 FunctionTypePointer FunctionType::asBoundFunction() const
 {
 	solAssert(!m_parameterTypes.empty(), "");
-	FunctionDefinition const* fun = dynamic_cast<FunctionDefinition const*>(m_declaration);
-	solAssert(fun && fun->libraryFunction(), "");
 	solAssert(!m_gasSet, "");
 	solAssert(!m_valueSet, "");
 	solAssert(!m_saltSet, "");
@@ -3687,7 +3696,7 @@ MemberList::MemberMap TypeType::nativeMembers(ASTNode const* _currentScope) cons
 						break;
 					}
 					if (!functionWithEqualArgumentsFound)
-						members.emplace_back(function->name(), functionType, function);
+						members.emplace_back(function, functionType);
 				}
 		}
 		else
@@ -3708,15 +3717,15 @@ MemberList::MemberMap TypeType::nativeMembers(ASTNode const* _currentScope) cons
 						auto const* functionDefinition = dynamic_cast<FunctionDefinition const*>(declaration);
 						functionDefinition && !functionDefinition->isImplemented()
 					)
-						members.emplace_back(declaration->name(), declaration->typeViaContractName(), declaration);
+						members.emplace_back(declaration, declaration->typeViaContractName());
 					else
-						members.emplace_back(declaration->name(), declaration->type(), declaration);
+						members.emplace_back(declaration, declaration->type());
 				}
 				else if (
 					(contract.isLibrary() && declaration->isVisibleAsLibraryMember()) ||
 					declaration->isVisibleViaContractTypeAccess()
 				)
-					members.emplace_back(declaration->name(), declaration->typeViaContractName(), declaration);
+					members.emplace_back(declaration, declaration->typeViaContractName());
 			}
 		}
 	}
@@ -3725,7 +3734,7 @@ MemberList::MemberMap TypeType::nativeMembers(ASTNode const* _currentScope) cons
 		EnumDefinition const& enumDef = dynamic_cast<EnumType const&>(*m_actualType).enumDefinition();
 		auto enumType = TypeProvider::enumType(enumDef);
 		for (ASTPointer<EnumValue> const& enumValue: enumDef.members())
-			members.emplace_back(enumValue->name(), enumType);
+			members.emplace_back(enumValue.get(), enumType);
 	}
 	return members;
 }
@@ -3801,9 +3810,9 @@ bool ModuleType::operator==(Type const& _other) const
 MemberList::MemberMap ModuleType::nativeMembers(ASTNode const*) const
 {
 	MemberList::MemberMap symbols;
-	for (auto const& symbolName: *m_sourceUnit.annotation().exportedSymbols)
-		for (Declaration const* symbol: symbolName.second)
-			symbols.emplace_back(symbolName.first, symbol->type(), symbol);
+	for (auto const& [name, declarations]: *m_sourceUnit.annotation().exportedSymbols)
+		for (Declaration const* symbol: declarations)
+			symbols.emplace_back(symbol, symbol->type(), name);
 	return symbols;
 }
 

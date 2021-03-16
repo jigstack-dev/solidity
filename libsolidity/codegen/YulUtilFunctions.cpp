@@ -387,6 +387,7 @@ string YulUtilFunctions::shiftRightSignedFunctionDynamic()
 
 string YulUtilFunctions::typedShiftLeftFunction(Type const& _type, Type const& _amountType)
 {
+	solUnimplementedAssert(_type.category() != Type::Category::FixedPoint, "Not yet implemented - FixedPointType.");
 	solAssert(_type.category() == Type::Category::FixedBytes || _type.category() == Type::Category::Integer, "");
 	solAssert(_amountType.category() == Type::Category::Integer, "");
 	solAssert(!dynamic_cast<IntegerType const&>(_amountType).isSigned(), "");
@@ -409,6 +410,7 @@ string YulUtilFunctions::typedShiftLeftFunction(Type const& _type, Type const& _
 
 string YulUtilFunctions::typedShiftRightFunction(Type const& _type, Type const& _amountType)
 {
+	solUnimplementedAssert(_type.category() != Type::Category::FixedPoint, "Not yet implemented - FixedPointType.");
 	solAssert(_type.category() == Type::Category::FixedBytes || _type.category() == Type::Category::Integer, "");
 	solAssert(_amountType.category() == Type::Category::Integer, "");
 	solAssert(!dynamic_cast<IntegerType const&>(_amountType).isSigned(), "");
@@ -2351,8 +2353,6 @@ string YulUtilFunctions::copyArrayFromStorageToMemoryFunction(ArrayType const& _
 
 string YulUtilFunctions::mappingIndexAccessFunction(MappingType const& _mappingType, Type const& _keyType)
 {
-	solAssert(_keyType.sizeOnStack() <= 1, "");
-
 	string functionName = "mapping_index_access_" + _mappingType.identifier() + "_of_" + _keyType.identifier();
 	return m_functionCollector.createFunction(functionName, [&]() {
 		if (_mappingType.keyType()->isDynamicallySized())
@@ -2362,7 +2362,7 @@ string YulUtilFunctions::mappingIndexAccessFunction(MappingType const& _mappingT
 				}
 			)")
 			("functionName", functionName)
-			("key", _keyType.sizeOnStack() > 0 ? "key" : "")
+			("key", suffixedVariableNameList("key_", 0, _keyType.sizeOnStack()))
 			("hash", packedHashFunction(
 				{&_keyType, TypeProvider::uint256()},
 				{_mappingType.keyType(), TypeProvider::uint256()}
@@ -3285,19 +3285,17 @@ string YulUtilFunctions::copyStructToStorageFunction(StructType const& _from, St
 		"_to_" +
 		_to.identifier();
 
-	return m_functionCollector.createFunction(functionName, [&]() {
+	return m_functionCollector.createFunction(functionName, [&](auto& _arguments, auto&) {
+		_arguments = {"slot", "value"};
 		Whiskers templ(R"(
-			function <functionName>(slot, value) {
-				<?fromStorage> if iszero(eq(slot, value)) { </fromStorage>
-				<#member>
-				{
-					<updateMemberCall>
-				}
-				</member>
-				<?fromStorage> } </fromStorage>
+			<?fromStorage> if iszero(eq(slot, value)) { </fromStorage>
+			<#member>
+			{
+				<updateMemberCall>
 			}
+			</member>
+			<?fromStorage> } </fromStorage>
 		)");
-		templ("functionName", functionName);
 		templ("fromStorage", _from.dataStoredIn(DataLocation::Storage));
 
 		MemberList::MemberMap structMembers = _from.nativeMembers(nullptr);
@@ -3368,7 +3366,7 @@ string YulUtilFunctions::copyStructToStorageFunction(StructType const& _from, St
 			}
 			else if (fromStorage)
 			{
-				auto[srcSlotOffset, srcOffset] = _from.storageOffsetsOfMember(structMembers[i].name);
+				auto const& [srcSlotOffset, srcOffset] = _from.storageOffsetsOfMember(structMembers[i].name);
 				t("memberOffset", formatNumber(srcSlotOffset));
 				if (memberType.isValueType())
 					t("read", readFromStorageValueType(memberType, srcOffset, false));
@@ -3391,7 +3389,11 @@ string YulUtilFunctions::copyStructToStorageFunction(StructType const& _from, St
 
 string YulUtilFunctions::arrayConversionFunction(ArrayType const& _from, ArrayType const& _to)
 {
-	solAssert(_to.location() != DataLocation::CallData, "");
+	if (_to.dataStoredIn(DataLocation::CallData))
+		solAssert(
+			_from.dataStoredIn(DataLocation::CallData) && _from.isByteArray() && _to.isByteArray(),
+			""
+		);
 
 	// Other cases are done explicitly in LValue::storeValue, and only possible by assignment.
 	if (_to.location() == DataLocation::Storage)
@@ -3409,16 +3411,22 @@ string YulUtilFunctions::arrayConversionFunction(ArrayType const& _from, ArrayTy
 
 	return m_functionCollector.createFunction(functionName, [&]() {
 		Whiskers templ(R"(
-			function <functionName>(value<?fromCalldataDynamic>, length</fromCalldataDynamic>) -> converted {
+			function <functionName>(value<?fromCalldataDynamic>, length</fromCalldataDynamic>) -> converted <?toCalldataDynamic>, outLength</toCalldataDynamic> {
 				<body>
+				<?toCalldataDynamic>
+					outLength := <length>
+				</toCalldataDynamic>
 			}
 		)");
 		templ("functionName", functionName);
 		templ("fromCalldataDynamic", _from.dataStoredIn(DataLocation::CallData) && _from.isDynamicallySized());
+		templ("toCalldataDynamic", _to.dataStoredIn(DataLocation::CallData) && _to.isDynamicallySized());
+		templ("length", _from.isDynamicallySized() ? "length" : _from.length().str());
 
 		if (
 			_from == _to ||
 			(_from.dataStoredIn(DataLocation::Memory) && _to.dataStoredIn(DataLocation::Memory)) ||
+			(_from.dataStoredIn(DataLocation::CallData) && _to.dataStoredIn(DataLocation::CallData)) ||
 			_to.dataStoredIn(DataLocation::Storage)
 		)
 			templ("body", "converted := value");
@@ -3876,11 +3884,13 @@ string YulUtilFunctions::storageSetToZeroFunction(Type const& _type)
 		if (_type.isValueType())
 			return Whiskers(R"(
 				function <functionName>(slot, offset) {
-					<store>(slot, offset, <zeroValue>())
+					let <values> := <zeroValue>()
+					<store>(slot, offset, <values>)
 				}
 			)")
 			("functionName", functionName)
 			("store", updateStorageValueFunction(_type, _type))
+			("values", suffixedVariableNameList("zero_", 0, _type.sizeOnStack()))
 			("zeroValue", zeroValueFunction(_type))
 			.render();
 		else if (_type.category() == Type::Category::Array)
@@ -4243,7 +4253,7 @@ string YulUtilFunctions::copyConstructorArgumentsToMemoryFunction(
 		toString(_contract.id());
 
 	return m_functionCollector.createFunction(functionName, [&]() {
-		string returnParams = suffixedVariableNameList("ret_param_",0, _contract.constructor()->parameters().size());
+		string returnParams = suffixedVariableNameList("ret_param_",0, CompilerUtils::sizeOnStack(_contract.constructor()->parameters()));
 		ABIFunctions abiFunctions(m_evmVersion, m_revertStrings, m_functionCollector);
 
 		return util::Whiskers(R"(

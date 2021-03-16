@@ -36,17 +36,60 @@
 #include <libsolutil/CommonData.h>
 #include <libsolutil/Whiskers.h>
 #include <libsolutil/StringUtils.h>
+#include <libsolutil/Algorithms.h>
 
 #include <liblangutil/SourceReferenceFormatter.h>
+
+#include <range/v3/view/map.hpp>
 
 #include <boost/range/adaptor/map.hpp>
 
 #include <sstream>
+#include <variant>
 
 using namespace std;
+using namespace ranges;
 using namespace solidity;
 using namespace solidity::util;
 using namespace solidity::frontend;
+
+namespace
+{
+
+void verifyCallGraph(
+	set<CallableDeclaration const*, ASTNode::CompareByID> const& _expectedCallables,
+	set<FunctionDefinition const*> _generatedFunctions
+)
+{
+	for (auto const& expectedCallable: _expectedCallables)
+		if (auto const* expectedFunction = dynamic_cast<FunctionDefinition const*>(expectedCallable))
+		{
+			solAssert(
+				_generatedFunctions.count(expectedFunction) == 1 || expectedFunction->isConstructor(),
+				"No code generated for function " + expectedFunction->name() + " even though it is not a constructor."
+			);
+			_generatedFunctions.erase(expectedFunction);
+		}
+
+	solAssert(
+		_generatedFunctions.size() == 0,
+		"Of the generated functions " + toString(_generatedFunctions.size()) + " are not in the call graph."
+	);
+}
+
+set<CallableDeclaration const*, ASTNode::CompareByID> collectReachableCallables(
+	CallGraph const& _graph
+)
+{
+	set<CallableDeclaration const*, ASTNode::CompareByID> reachableCallables;
+	for (CallGraph::Node const& reachableNode: _graph.edges | views::keys)
+		if (holds_alternative<CallableDeclaration const*>(reachableNode))
+			reachableCallables.emplace(get<CallableDeclaration const*>(reachableNode));
+
+	return reachableCallables;
+}
+
+}
 
 pair<string, string> IRGenerator::run(
 	ContractDefinition const& _contract,
@@ -102,16 +145,16 @@ string IRGenerator::generate(
 				<deploy>
 				<functions>
 			}
-			object "<RuntimeObject>" {
+			object "<DeployedObject>" {
 				code {
-					<memoryInitRuntime>
+					<memoryInitDeployed>
 					<?library>
 					let called_via_delegatecall := iszero(eq(loadimmutable("<library_address>"), address()))
 					</library>
 					<dispatch>
-					<runtimeFunctions>
+					<deployedFunctions>
 				}
-				<runtimeSubObjects>
+				<deployedSubObjects>
 			}
 			<subObjects>
 		}
@@ -129,7 +172,7 @@ string IRGenerator::generate(
 	vector<string> constructorParams;
 	if (constructor && !constructor->parameters().empty())
 	{
-		for (size_t i = 0; i < constructor->parameters().size(); ++i)
+		for (size_t i = 0; i < CompilerUtils::sizeOnStack(constructor->parameters()); ++i)
 			constructorParams.emplace_back(m_context.newYulVariable());
 		t(
 			"copyConstructorArguments",
@@ -142,8 +185,9 @@ string IRGenerator::generate(
 
 	t("deploy", deployCode(_contract));
 	generateImplicitConstructors(_contract);
-	generateQueuedFunctions();
+	set<FunctionDefinition const*> creationFunctionList = generateQueuedFunctions();
 	InternalDispatchMap internalDispatchMap = generateInternalDispatchFunctions();
+
 	t("functions", m_context.functionCollector().requestedFunctions());
 	t("subObjects", subObjectSources(m_context.subObjectsCreated()));
 
@@ -155,21 +199,27 @@ string IRGenerator::generate(
 
 	// NOTE: Function pointers can be passed from creation code via storage variables. We need to
 	// get all the functions they could point to into the dispatch functions even if they're never
-	// referenced by name in the runtime code.
+	// referenced by name in the deployed code.
 	m_context.initializeInternalDispatch(move(internalDispatchMap));
 
 	// Do not register immutables to avoid assignment.
-	t("RuntimeObject", IRNames::runtimeObject(_contract));
+	t("DeployedObject", IRNames::deployedObject(_contract));
 	t("library_address", IRNames::libraryAddressImmutable());
 	t("dispatch", dispatchRoutine(_contract));
-	generateQueuedFunctions();
+	set<FunctionDefinition const*> deployedFunctionList = generateQueuedFunctions();
 	generateInternalDispatchFunctions();
-	t("runtimeFunctions", m_context.functionCollector().requestedFunctions());
-	t("runtimeSubObjects", subObjectSources(m_context.subObjectsCreated()));
+	t("deployedFunctions", m_context.functionCollector().requestedFunctions());
+	t("deployedSubObjects", subObjectSources(m_context.subObjectsCreated()));
 
-	// This has to be called only after all other code generation for the runtime object is complete.
-	bool runtimeInvolvesAssembly = m_context.inlineAssemblySeen();
-	t("memoryInitRuntime", memoryInit(!runtimeInvolvesAssembly));
+	// This has to be called only after all other code generation for the deployed object is complete.
+	bool deployedInvolvesAssembly = m_context.inlineAssemblySeen();
+	t("memoryInitDeployed", memoryInit(!deployedInvolvesAssembly));
+
+	solAssert(_contract.annotation().creationCallGraph->get() != nullptr, "");
+	solAssert(_contract.annotation().deployedCallGraph->get() != nullptr, "");
+	verifyCallGraph(collectReachableCallables(**_contract.annotation().creationCallGraph), move(creationFunctionList));
+	verifyCallGraph(collectReachableCallables(**_contract.annotation().deployedCallGraph), move(deployedFunctionList));
+
 	return t.render();
 }
 
@@ -180,11 +230,20 @@ string IRGenerator::generate(Block const& _block)
 	return generator.code();
 }
 
-void IRGenerator::generateQueuedFunctions()
+set<FunctionDefinition const*> IRGenerator::generateQueuedFunctions()
 {
+	set<FunctionDefinition const*> functions;
+
 	while (!m_context.functionGenerationQueueEmpty())
+	{
+		FunctionDefinition const& functionDefinition = *m_context.dequeueFunctionForCodeGeneration();
+
+		functions.emplace(&functionDefinition);
 		// NOTE: generateFunction() may modify function generation queue
-		generateFunction(*m_context.dequeueFunctionForCodeGeneration());
+		generateFunction(functionDefinition);
+	}
+
+	return functions;
 }
 
 InternalDispatchMap IRGenerator::generateInternalDispatchFunctions()
@@ -323,7 +382,7 @@ string IRGenerator::generateModifier(
 		t("functionName", functionName);
 		vector<string> retParamsIn;
 		for (auto const& varDecl: _function.returnParameters())
-			retParamsIn += IRVariable(*varDecl).stackSlots();
+			retParamsIn += m_context.addLocalVariable(*varDecl).stackSlots();
 		vector<string> params = retParamsIn;
 		for (auto const& varDecl: _function.parameters())
 			params += m_context.addLocalVariable(*varDecl).stackSlots();
@@ -727,7 +786,7 @@ void IRGenerator::generateImplicitConstructors(ContractDefinition const& _contra
 						generateModifier(modifier, *constructor, next);
 					}
 					body =
-						IRNames::modifierInvocation(*constructor->modifiers().at(0)) +
+						IRNames::modifierInvocation(*realModifiers.at(0)) +
 						"(" +
 						joinHumanReadable(params) +
 						")";
@@ -757,7 +816,7 @@ string IRGenerator::deployCode(ContractDefinition const& _contract)
 
 		return(0, datasize("<object>"))
 	)X");
-	t("object", IRNames::runtimeObject(_contract));
+	t("object", IRNames::deployedObject(_contract));
 
 	vector<map<string, string>> loadImmutables;
 	vector<map<string, string>> storeImmutables;

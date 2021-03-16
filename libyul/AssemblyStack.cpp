@@ -148,7 +148,7 @@ bool AssemblyStack::analyzeParsed(Object& _object)
 	return success;
 }
 
-void AssemblyStack::compileEVM(AbstractAssembly& _assembly, bool _evm15, bool _optimize) const
+void AssemblyStack::compileEVM(AbstractAssembly& _assembly, bool _optimize) const
 {
 	EVMDialect const* dialect = nullptr;
 	switch (m_language)
@@ -165,7 +165,7 @@ void AssemblyStack::compileEVM(AbstractAssembly& _assembly, bool _evm15, bool _o
 			break;
 	}
 
-	EVMObjectCompiler::compile(*m_parserResult, _assembly, *dialect, _evm15, _optimize);
+	EVMObjectCompiler::compile(*m_parserResult, _assembly, *dialect, _optimize);
 }
 
 void AssemblyStack::optimize(Object& _object, bool _isCreation)
@@ -199,16 +199,7 @@ MachineAssemblyObject AssemblyStack::assemble(Machine _machine) const
 	switch (_machine)
 	{
 	case Machine::EVM:
-		return assembleAndGuessRuntime().first;
-	case Machine::EVM15:
-	{
-		MachineAssemblyObject object;
-		EVMAssembly assembly(true);
-		compileEVM(assembly, true, m_optimiserSettings.optimizeStackAllocation);
-		object.bytecode = make_shared<evmasm::LinkerObject>(assembly.finalize());
-		/// TODO: fill out text representation
-		return object;
-	}
+		return assembleWithDeployed().first;
 	case Machine::Ewasm:
 	{
 		yulAssert(m_language == Language::Ewasm, "");
@@ -226,7 +217,7 @@ MachineAssemblyObject AssemblyStack::assemble(Machine _machine) const
 	return MachineAssemblyObject();
 }
 
-pair<MachineAssemblyObject, MachineAssemblyObject> AssemblyStack::assembleAndGuessRuntime() const
+std::pair<MachineAssemblyObject, MachineAssemblyObject> AssemblyStack::assembleWithDeployed(optional<string_view> _deployName) const
 {
 	yulAssert(m_analysisSuccessful, "");
 	yulAssert(m_parserResult, "");
@@ -235,7 +226,7 @@ pair<MachineAssemblyObject, MachineAssemblyObject> AssemblyStack::assembleAndGue
 
 	evmasm::Assembly assembly;
 	EthAssemblyAdapter adapter(assembly);
-	compileEVM(adapter, false, m_optimiserSettings.optimizeStackAllocation);
+	compileEVM(adapter, m_optimiserSettings.optimizeStackAllocation);
 
 	MachineAssemblyObject creationObject;
 	creationObject.bytecode = make_shared<evmasm::LinkerObject>(assembly.assemble());
@@ -248,22 +239,39 @@ pair<MachineAssemblyObject, MachineAssemblyObject> AssemblyStack::assembleAndGue
 		)
 	);
 
-	MachineAssemblyObject runtimeObject;
-	// Heuristic: If there is a single sub-assembly, this is likely the runtime object.
-	if (assembly.numSubs() == 1)
+	MachineAssemblyObject deployedObject;
+	optional<size_t> subIndex;
+
+	// Pick matching assembly if name was given
+	if (_deployName.has_value())
 	{
-		evmasm::Assembly& runtimeAssembly = assembly.sub(0);
-		runtimeObject.bytecode = make_shared<evmasm::LinkerObject>(runtimeAssembly.assemble());
-		runtimeObject.assembly = runtimeAssembly.assemblyString();
-		runtimeObject.sourceMappings = make_unique<string>(
+		for (size_t i = 0; i < assembly.numSubs(); i++)
+			if (assembly.sub(i).name() == _deployName)
+			{
+				subIndex = i;
+				break;
+			}
+
+		solAssert(subIndex.has_value(), "Failed to find object to be deployed.");
+	}
+	// Otherwise use heuristic: If there is a single sub-assembly, this is likely the object to be deployed.
+	else if (assembly.numSubs() == 1)
+		subIndex = 0;
+
+	if (subIndex.has_value())
+	{
+		evmasm::Assembly& runtimeAssembly = assembly.sub(*subIndex);
+		deployedObject.bytecode = make_shared<evmasm::LinkerObject>(runtimeAssembly.assemble());
+		deployedObject.assembly = runtimeAssembly.assemblyString();
+		deployedObject.sourceMappings = make_unique<string>(
 			evmasm::AssemblyItem::computeSourceMapping(
 				runtimeAssembly.items(),
 				{{scanner().charStream() ? scanner().charStream()->name() : "", 0}}
 			)
 		);
 	}
-	return {std::move(creationObject), std::move(runtimeObject)};
 
+	return {std::move(creationObject), std::move(deployedObject)};
 }
 
 string AssemblyStack::print() const

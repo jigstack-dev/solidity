@@ -30,9 +30,11 @@ set -e
 
 ## GLOBAL VARIABLES
 
-REPO_ROOT=$(cd $(dirname "$0")/.. && pwd)
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SOLIDITY_BUILD_DIR=${SOLIDITY_BUILD_DIR:-${REPO_ROOT}/build}
+# shellcheck source=scripts/common.sh
 source "${REPO_ROOT}/scripts/common.sh"
+# shellcheck source=scripts/common_cmdline.sh
 source "${REPO_ROOT}/scripts/common_cmdline.sh"
 
 (( $# <= 1 )) || { printError "Too many arguments"; exit 1; }
@@ -91,7 +93,7 @@ function ask_expectation_update
 
             while true
             do
-                read -N 1 -p "(e)dit/(u)pdate expectations/(s)kip/(q)uit? "
+                read -r -N 1 -p "(e)dit/(u)pdate expectations/(s)kip/(q)uit? "
                 echo
                 case $REPLY in
                     e*) "$editor" "$expectationFile"; break;;
@@ -111,7 +113,8 @@ function ask_expectation_update
 function test_solc_behaviour()
 {
     local filename="${1}"
-    local solc_args="${2}"
+    local solc_args
+    IFS=" " read -r -a solc_args <<< "${2}"
     local solc_stdin="${3}"
     [ -z "$solc_stdin"  ] && solc_stdin="/dev/stdin"
     local stdout_expected="${4}"
@@ -120,20 +123,21 @@ function test_solc_behaviour()
     local stderr_expected="${7}"
     local stdout_expectation_file="${8}" # the file to write to when user chooses to update stdout expectation
     local stderr_expectation_file="${9}" # the file to write to when user chooses to update stderr expectation
-    local stdout_path=`mktemp`
-    local stderr_path=`mktemp`
+    local stdout_path; stdout_path=$(mktemp)
+    local stderr_path; stderr_path=$(mktemp)
 
+    # shellcheck disable=SC2064
     trap "rm -f $stdout_path $stderr_path" EXIT
 
     if [[ "$exit_code_expected" = "" ]]; then exit_code_expected="0"; fi
 
-    local solc_command="$SOLC ${filename} ${solc_args} <$solc_stdin"
+    local solc_command="$SOLC ${filename} ${solc_args[*]} <$solc_stdin"
     set +e
-    "$SOLC" "${filename}" ${solc_args} <"$solc_stdin" >"$stdout_path" 2>"$stderr_path"
+    "$SOLC" "${filename}" "${solc_args[@]}" <"$solc_stdin" >"$stdout_path" 2>"$stderr_path"
     exitCode=$?
     set -e
 
-    if [[ "$solc_args" == *"--standard-json"* ]]
+    if [[ " ${solc_args[*]} " == *" --standard-json "* ]]
     then
         sed -i.bak -e 's/{[^{]*Warning: This is a pre-release compiler version[^}]*},\{0,1\}//' "$stdout_path"
         sed -i.bak -E -e 's/ Consider adding \\"pragma solidity \^[0-9.]*;\\"//g' "$stdout_path"
@@ -143,10 +147,13 @@ function test_solc_behaviour()
 
         # Remove bytecode (but not linker references).
         sed -i.bak -E -e 's/(\"object\":\")[0-9a-f]+([^"]*\")/\1<BYTECODE REMOVED>\2/g' "$stdout_path"
+        # shellcheck disable=SC2016
         sed -i.bak -E -e 's/(\"object\":\"[^"]+\$__)[0-9a-f]+(\")/\1<BYTECODE REMOVED>\2/g' "$stdout_path"
+        # shellcheck disable=SC2016
         sed -i.bak -E -e 's/([0-9a-f]{34}\$__)[0-9a-f]+(__\$[0-9a-f]{17})/\1<BYTECODE REMOVED>\2/g' "$stdout_path"
 
         # Replace escaped newlines by actual newlines for readability
+        # shellcheck disable=SC1003
         sed -i.bak -E -e 's/\\n/\'$'\n/g' "$stdout_path"
         rm "$stdout_path.bak"
     else
@@ -163,7 +170,9 @@ function test_solc_behaviour()
         # 64697066735822 = hex encoding of 0x64 'i' 'p' 'f' 's' 0x58 0x22
         # 64736f6c63     = hex encoding of 0x64 's' 'o' 'l' 'c'
         sed -i.bak -E -e 's/[0-9a-f]*64697066735822[0-9a-f]+64736f6c63[0-9a-f]+/<BYTECODE REMOVED>/g' "$stdout_path"
+        # shellcheck disable=SC2016
         sed -i.bak -E -e 's/([0-9a-f]{17}\$__)[0-9a-f]+(__\$[0-9a-f]{17})/\1<BYTECODE REMOVED>\2/g' "$stdout_path"
+        # shellcheck disable=SC2016
         sed -i.bak -E -e 's/[0-9a-f]+((__\$[0-9a-f]{34}\$__)*<BYTECODE REMOVED>)/<BYTECODE REMOVED>\1/g' "$stdout_path"
 
         # Remove trailing empty lines. Needs a line break to make OSX sed happy.
@@ -185,13 +194,13 @@ function test_solc_behaviour()
         [[ $exit_code_expectation_file == "" ]] && exit 1
     fi
 
-    if [[ "$(cat $stdout_path)" != "${stdout_expected}" ]]
+    if [[ "$(cat "$stdout_path")" != "${stdout_expected}" ]]
     then
         printError "Incorrect output on stdout received. Expected:"
         echo -e "${stdout_expected}"
 
         printError "But got:"
-        echo -e "$(cat $stdout_path)"
+        echo -e "$(cat "$stdout_path")"
 
         printError "When running $solc_command"
 
@@ -199,13 +208,13 @@ function test_solc_behaviour()
         [[ $stdout_expectation_file == "" ]] && exit 1
     fi
 
-    if [[ "$(cat $stderr_path)" != "${stderr_expected}" ]]
+    if [[ "$(cat "$stderr_path")" != "${stderr_expected}" ]]
     then
         printError "Incorrect output on stderr received. Expected:"
         echo -e "${stderr_expected}"
 
         printError "But got:"
-        echo -e "$(cat $stderr_path)"
+        echo -e "$(cat "$stderr_path")"
 
         printError "When running $solc_command"
 
@@ -221,17 +230,17 @@ function test_solc_assembly_output()
 {
     local input="${1}"
     local expected="${2}"
-    local solc_args="${3}"
+    IFS=" " read -r -a solc_args <<< "${3}"
 
-    local expected_object="object \"object\" { code "${expected}" }"
+    local expected_object="object \"object\" { code ${expected} }"
 
-    output=$(echo "${input}" | "$SOLC" - ${solc_args} 2>/dev/null)
+    output=$(echo "${input}" | "$SOLC" - "${solc_args[@]}" 2>/dev/null)
     empty=$(echo "$output" | tr '\n' ' ' | tr -s ' ' | sed -ne "/${expected_object}/p")
     if [ -z "$empty" ]
     then
         printError "Incorrect assembly output. Expected: "
-        echo -e ${expected}
-        printError "with arguments ${solc_args}, but got:"
+        echo -e "${expected}"
+        printError "with arguments ${solc_args[*]}, but got:"
         echo "${output}"
         exit 1
     fi
@@ -279,9 +288,9 @@ printTask "Running general commandline tests..."
         # Strip trailing slash from $tdir.
         tdir=$(basename "${tdir}")
 
-        inputFiles="$(ls -1 ${tdir}/input.* 2> /dev/null || true)"
-        inputCount="$(echo ${inputFiles} | wc -w)"
-        if (( ${inputCount} > 1 ))
+        inputFiles="$(ls -1 "${tdir}/input."* 2> /dev/null || true)"
+        inputCount="$(echo "${inputFiles}" | wc -w)"
+        if (( inputCount > 1 ))
         then
             printError "Ambiguous input. Found input files in multiple formats:"
             echo -e "${inputFiles}"
@@ -300,21 +309,21 @@ printTask "Running general commandline tests..."
         then
             stdin="${inputFile}"
             inputFile=""
-            stdout="$(cat ${tdir}/output.json 2>/dev/null || true)"
+            stdout="$(cat "${tdir}/output.json" 2>/dev/null || true)"
             stdoutExpectationFile="${tdir}/output.json"
-            args="--standard-json "$(cat ${tdir}/args 2>/dev/null || true)
+            command_args="--standard-json "$(cat "${tdir}/args" 2>/dev/null || true)
         else
             stdin=""
-            stdout="$(cat ${tdir}/output 2>/dev/null || true)"
+            stdout="$(cat "${tdir}/output" 2>/dev/null || true)"
             stdoutExpectationFile="${tdir}/output"
-            args=$(cat ${tdir}/args 2>/dev/null || true)
+            command_args=$(cat "${tdir}/args" 2>/dev/null || true)
         fi
         exitCodeExpectationFile="${tdir}/exit"
         exitCode=$(cat "$exitCodeExpectationFile" 2>/dev/null || true)
-        err="$(cat ${tdir}/err 2>/dev/null || true)"
+        err="$(cat "${tdir}/err" 2>/dev/null || true)"
         stderrExpectationFile="${tdir}/err"
         test_solc_behaviour "$inputFile" \
-                            "$args" \
+                            "$command_args" \
                             "$stdin" \
                             "$stdout" \
                             "$exitCode" \
@@ -332,7 +341,7 @@ printTask "Compiling various other contracts and libraries..."
     do
         echo " - $dir"
         cd "$dir"
-        compileFull -w *.sol */*.sol
+        compileFull -w ./*.sol ./*/*.sol
         cd ..
     done
 )
@@ -354,22 +363,22 @@ SOLTMPDIR=$(mktemp -d)
         fi
         echo "$f"
 
-        opts=''
+        opts=()
         # We expect errors if explicitly stated, or if imports
         # are used (in the style guide)
         if grep -E "This will not compile|import \"" "$f" >/dev/null
         then
-            opts="-e"
+            opts=(-e)
         fi
         if grep "This will report a warning" "$f" >/dev/null
         then
-            opts="$opts -w"
+            opts+=(-w)
         fi
         if grep "This may report a warning" "$f" >/dev/null
         then
-            opts="$opts -o"
+            opts+=(-o)
         fi
-        compileFull $opts "$SOLTMPDIR/$f"
+        compileFull "${opts[@]}" "$SOLTMPDIR/$f"
     done
 )
 rm -rf "$SOLTMPDIR"
@@ -377,7 +386,7 @@ echo "Done."
 
 printTask "Testing library checksum..."
 echo '' | "$SOLC" - --link --libraries a=0x90f20564390eAe531E810af625A22f51385Cd222 >/dev/null
-! echo '' | "$SOLC" - --link --libraries a=0x80f20564390eAe531E810af625A22f51385Cd222 &>/dev/null
+echo '' | "$SOLC" - --link --libraries a=0x80f20564390eAe531E810af625A22f51385Cd222 &>/dev/null && exit 1
 
 printTask "Testing long library names..."
 echo '' | "$SOLC" - --link --libraries aveeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeerylonglibraryname=0x90f20564390eAe531E810af625A22f51385Cd222 >/dev/null
@@ -407,7 +416,7 @@ SOLTMPDIR=$(mktemp -d)
     # First time it works
     echo 'contract C {} ' | "$SOLC" - --bin -o "$SOLTMPDIR/non-existing-stuff-to-create" 2>/dev/null
     # Second time it fails
-    ! echo 'contract C {} ' | "$SOLC" - --bin -o "$SOLTMPDIR/non-existing-stuff-to-create" 2>/dev/null
+    echo 'contract C {} ' | "$SOLC" - --bin -o "$SOLTMPDIR/non-existing-stuff-to-create" 2>/dev/null && exit 1
     # Unless we force
     echo 'contract C {} ' | "$SOLC" - --overwrite --bin -o "$SOLTMPDIR/non-existing-stuff-to-create" 2>/dev/null
 )
@@ -421,8 +430,8 @@ printTask "Testing assemble, yul, strict-assembly and optimize..."
 
     # Test options above in conjunction with --optimize.
     # Using both, --assemble and --optimize should fail.
-    ! echo '{}' | "$SOLC" - --assemble --optimize &>/dev/null
-    ! echo '{}' | "$SOLC" - --yul --optimize &>/dev/null
+    echo '{}' | "$SOLC" - --assemble --optimize &>/dev/null && exit 1
+    echo '{}' | "$SOLC" - --yul --optimize &>/dev/null && exit 1
 
     # Test yul and strict assembly output
     # Non-empty code results in non-empty binary representation with optimizations turned off,
@@ -444,32 +453,23 @@ SOLTMPDIR=$(mktemp -d)
     set -e
 
     # This should fail
-    if [[ !("$output" =~ "No input files given") || ($result == 0) ]]
+    if [[ ! ("$output" =~ "No input files given") || ($result == 0) ]]
     then
         printError "Incorrect response to empty input arg list: $output"
         exit 1
     fi
 
-    set +e
-    output=$(echo 'contract C {} ' | "$SOLC" - --bin 2>/dev/null | grep -q "<stdin>:C")
-    result=$?
-    set -e
-
     # The contract should be compiled
-    if [[ "$result" != 0 ]]
+    if ! output=$(echo 'contract C {} ' | "$SOLC" - --bin 2>/dev/null | grep -q "<stdin>:C")
     then
         printError "Failed to compile a simple contract from standard input"
         exit 1
     fi
 
     # This should not fail
-    set +e
-    output=$(echo '' | "$SOLC" --ast-json - 2>/dev/null)
-    result=$?
-    set -e
-    if [[ $result != 0 ]]
+    if ! output=$(echo '' | "$SOLC" --ast-compact-json - 2>/dev/null)
     then
-        printError "Incorrect response to --ast-json option with empty stdin"
+        printError "Incorrect response to --ast-compact-json option with empty stdin"
         exit 1
     fi
 )
@@ -478,8 +478,7 @@ printTask "Testing AST import..."
 SOLTMPDIR=$(mktemp -d)
 (
     cd "$SOLTMPDIR"
-    $REPO_ROOT/scripts/ASTImportTest.sh
-    if [ $? -ne 0 ]
+    if ! "$REPO_ROOT/scripts/ASTImportTest.sh"
     then
         rm -rf "$SOLTMPDIR"
         exit 1
@@ -498,8 +497,8 @@ SOLTMPDIR=$(mktemp -d)
     "$REPO_ROOT"/scripts/isolate_tests.py "$REPO_ROOT"/test/
     "$REPO_ROOT"/scripts/isolate_tests.py "$REPO_ROOT"/docs/ docs
 
-    echo *.sol | xargs -P 4 -n 50 "${SOLIDITY_BUILD_DIR}/test/tools/solfuzzer" --quiet --input-files
-    echo *.sol | xargs -P 4 -n 50 "${SOLIDITY_BUILD_DIR}/test/tools/solfuzzer" --without-optimizer --quiet --input-files
+    echo ./*.sol | xargs -P 4 -n 50 "${SOLIDITY_BUILD_DIR}/test/tools/solfuzzer" --quiet --input-files
+    echo ./*.sol | xargs -P 4 -n 50 "${SOLIDITY_BUILD_DIR}/test/tools/solfuzzer" --without-optimizer --quiet --input-files
 )
 rm -rf "$SOLTMPDIR"
 

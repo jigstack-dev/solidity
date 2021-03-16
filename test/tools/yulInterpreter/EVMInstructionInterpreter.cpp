@@ -95,7 +95,7 @@ u256 EVMInstructionInterpreter::eval(
 	switch (_instruction)
 	{
 	case Instruction::STOP:
-		throw ExplicitlyTerminated();
+		BOOST_THROW_EXCEPTION(ExplicitlyTerminated());
 	// --------------- arithmetic ---------------
 	case Instruction::ADD:
 		return arg[0] + arg[1];
@@ -328,18 +328,18 @@ u256 EVMInstructionInterpreter::eval(
 		if (accessMemory(arg[0], arg[1]))
 			data = readMemory(arg[0], arg[1]);
 		logTrace(_instruction, arg, data);
-		throw ExplicitlyTerminated();
+		BOOST_THROW_EXCEPTION(ExplicitlyTerminated());
 	}
 	case Instruction::REVERT:
 		accessMemory(arg[0], arg[1]);
 		logTrace(_instruction, arg);
-		throw ExplicitlyTerminated();
+		BOOST_THROW_EXCEPTION(ExplicitlyTerminated());
 	case Instruction::INVALID:
 		logTrace(_instruction);
-		throw ExplicitlyTerminated();
+		BOOST_THROW_EXCEPTION(ExplicitlyTerminated());
 	case Instruction::SELFDESTRUCT:
 		logTrace(_instruction, arg);
-		throw ExplicitlyTerminated();
+		BOOST_THROW_EXCEPTION(ExplicitlyTerminated());
 	case Instruction::POP:
 		break;
 	// --------------- invalid in strict assembly ---------------
@@ -410,17 +410,6 @@ u256 EVMInstructionInterpreter::eval(
 	case Instruction::SWAP14:
 	case Instruction::SWAP15:
 	case Instruction::SWAP16:
-	// --------------- EIP-615 ---------------
-	case Instruction::EIP615_JUMPTO:
-	case Instruction::EIP615_JUMPIF:
-	case Instruction::EIP615_JUMPV:
-	case Instruction::EIP615_JUMPSUB:
-	case Instruction::EIP615_JUMPSUBV:
-	case Instruction::EIP615_BEGINSUB:
-	case Instruction::EIP615_BEGINDATA:
-	case Instruction::EIP615_RETURNSUB:
-	case Instruction::EIP615_PUTLOCAL:
-	case Instruction::EIP615_GETLOCAL:
 	{
 		yulAssert(false, "");
 		return 0;
@@ -527,6 +516,6 @@ void EVMInstructionInterpreter::logTrace(std::string const& _pseudoInstruction, 
 	if (m_state.maxTraceSize > 0 && m_state.trace.size() >= m_state.maxTraceSize)
 	{
 		m_state.trace.emplace_back("Trace size limit reached.");
-		throw TraceLimitReached();
+		BOOST_THROW_EXCEPTION(TraceLimitReached());
 	}
 }

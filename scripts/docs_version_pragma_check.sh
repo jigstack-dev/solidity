@@ -27,9 +27,11 @@ set -e
 
 ## GLOBAL VARIABLES
 
-REPO_ROOT=$(cd $(dirname "$0")/.. && pwd)
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SOLIDITY_BUILD_DIR=${SOLIDITY_BUILD_DIR:-${REPO_ROOT}/build}
+# shellcheck source=scripts/common.sh
 source "${REPO_ROOT}/scripts/common.sh"
+# shellcheck source=scripts/common_cmdline.sh
 source "${REPO_ROOT}/scripts/common_cmdline.sh"
 
 developmentVersion=$("$REPO_ROOT/scripts/get_version.sh")
@@ -38,16 +40,18 @@ function versionGreater()
 {
     v1=$1
     v2=$2
+    # shellcheck disable=SC2206
     ver1=( ${v1//./ } )
+    # shellcheck disable=SC2206
     ver2=( ${v2//./ } )
 
-    if (( ${ver1[0]} > ${ver2[0]} ))
+    if (( "${ver1[0]}" > "${ver2[0]}" ))
     then
         return 0
-    elif (( ${ver1[0]} == ${ver2[0]} )) && (( ${ver1[1]} > ${ver2[1]} ))
+    elif (( "${ver1[0]}" == "${ver2[0]}" )) && (( "${ver1[1]}" > "${ver2[1]}" ))
     then
         return 0
-    elif (( ${ver1[0]} == ${ver2[0]} )) && (( ${ver1[1]} == ${ver2[1]} )) && (( ${ver1[2]} > ${ver2[2]} ))
+    elif (( "${ver1[0]}" == "${ver2[0]}" )) && (( "${ver1[1]}" == "${ver2[1]}" )) && (( "${ver1[2]}" > "${ver2[2]}" ))
     then
         return 0
     fi
@@ -66,16 +70,17 @@ function versionEqual()
 function getAllAvailableVersions()
 {
     allVersions=()
-    local allListedVersions=( $(
+    local allListedVersions
+    mapfile -t allListedVersions <<< "$(
         wget -q -O- https://binaries.soliditylang.org/bin/list.txt |
         grep -Po '(?<=soljson-v)\d+.\d+.\d+(?=\+commit)' |
         sort -V
-    ) )
+    )"
     for listed in "${allListedVersions[@]}"
     do
         if versionGreater "$listed" "0.4.10"
         then
-            allVersions+=( $listed )
+            allVersions+=( "$listed" )
         fi
     done
 }
@@ -145,19 +150,19 @@ SOLTMPDIR=$(mktemp -d)
         fi
         echo "$f"
 
-        opts=''
+        opts=()
         # We expect errors if explicitly stated, or if imports
         # are used (in the style guide)
         if ( ! grep -E "This will not compile after" "$f" >/dev/null && \
             grep -E "This will not compile|import \"" "$f" >/dev/null )
         then
-            opts="-e"
+            opts=(-e)
         fi
 
         # ignore warnings in this case
-        opts="$opts -o"
+        opts+=(-o)
 
-        findMinimalVersion $f
+        findMinimalVersion "$f"
         if [[ "$version" == "" ]]
         then
             continue
@@ -168,16 +173,16 @@ SOLTMPDIR=$(mktemp -d)
             continue
         fi
 
-        opts="$opts -v $version"
+        opts+=(-v "$version")
 
         solc_bin="solc-$version"
         echo "$solc_bin"
         if [[ ! -f "$solc_bin" ]]
         then
             echo "Downloading release from github..."
-            if wget -q https://github.com/ethereum/solidity/releases/download/v$version/solc-static-linux >/dev/null
+            if wget -q "https://github.com/ethereum/solidity/releases/download/v$version/solc-static-linux" >/dev/null
             then
-                mv solc-static-linux $solc_bin
+                mv solc-static-linux "$solc_bin"
             else
                 printError "No release $version was found on github!"
                 continue
@@ -187,8 +192,7 @@ SOLTMPDIR=$(mktemp -d)
         ln -sf "$solc_bin" "solc"
         chmod a+x solc
 
-        SOLC="$SOLTMPDIR/solc"
-        compileFull $opts "$SOLTMPDIR/$f"
+        SOLC="$SOLTMPDIR/solc" compileFull "${opts[@]}" "$SOLTMPDIR/$f"
     done
 )
 rm -rf "$SOLTMPDIR"

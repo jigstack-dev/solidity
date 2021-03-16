@@ -9,11 +9,11 @@ contract Small {
 // optimize-runs: 2
 // ----
 // creation:
-//   codeDepositCost: 76200
-//   executionCost: 123
-//   totalCost: 76323
+//   codeDepositCost: 61800
+//   executionCost: 111
+//   totalCost: 61911
 // external:
 //   fallback: 118
-//   a(): 1006
-//   b(uint256): 2018
-//   f1(uint256): 41253
+//   a(): 961
+//   b(uint256): 1985
+//   f1(uint256): 41220

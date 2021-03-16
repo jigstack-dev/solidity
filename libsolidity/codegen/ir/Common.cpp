@@ -35,6 +35,9 @@ YulArity YulArity::fromType(FunctionType const& _functionType)
 
 string IRNames::function(FunctionDefinition const& _function)
 {
+	if (_function.isConstructor())
+		return implicitConstructor(*_function.annotation().contract);
+
 	return "fun_" + _function.name() + "_" + to_string(_function.id());
 }
 
@@ -63,7 +66,7 @@ string IRNames::creationObject(ContractDefinition const& _contract)
 	return _contract.name() + "_" + toString(_contract.id());
 }
 
-string IRNames::runtimeObject(ContractDefinition const& _contract)
+string IRNames::deployedObject(ContractDefinition const& _contract)
 {
 	return _contract.name() + "_" + toString(_contract.id()) + "_deployed";
 }
@@ -93,7 +96,7 @@ string IRNames::constantValueFunction(VariableDeclaration const& _constant)
 
 string IRNames::localVariable(VariableDeclaration const& _declaration)
 {
-	return "vloc_" + _declaration.name() + '_' + std::to_string(_declaration.id());
+	return "var_" + _declaration.name() + '_' + std::to_string(_declaration.id());
 }
 
 string IRNames::localVariable(Expression const& _expression)
@@ -117,7 +120,7 @@ string IRNames::tupleComponent(size_t _i)
 
 string IRNames::zeroValue(Type const& _type, string const& _variableName)
 {
-	return "zero_value_for_type_" + _type.identifier() + _variableName;
+	return "zero_" + _type.identifier() + _variableName;
 }
 
 FunctionDefinition const* IRHelpers::referencedFunctionDeclaration(Expression const& _expression)

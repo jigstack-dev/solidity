@@ -25,6 +25,7 @@
 
 #include <libsolidity/interface/OptimiserSettings.h>
 #include <libsolidity/ast/ASTForward.h>
+#include <libsolidity/ast/CallGraph.h>
 #include <libsolidity/codegen/ir/IRGenerationContext.h>
 #include <libsolidity/codegen/YulUtilFunctions.h>
 #include <liblangutil/EVMVersion.h>
@@ -65,7 +66,8 @@ private:
 
 	/// Generates code for all the functions from the function generation queue.
 	/// The resulting code is stored in the function collector in IRGenerationContext.
-	void generateQueuedFunctions();
+	/// @returns A set of ast nodes of the generated functions.
+	std::set<FunctionDefinition const*> generateQueuedFunctions();
 	/// Generates  all the internal dispatch functions necessary to handle any function that could
 	/// possibly be called via a pointer.
 	/// @return The content of the dispatch for reuse in runtime code. Reuse is necessary because

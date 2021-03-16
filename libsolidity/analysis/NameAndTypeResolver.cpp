@@ -76,16 +76,8 @@ bool NameAndTypeResolver::performImports(SourceUnit& _sourceUnit, map<string, So
 		if (auto imp = dynamic_cast<ImportDirective const*>(node.get()))
 		{
 			string const& path = *imp->annotation().absolutePath;
-			if (!_sourceUnits.count(path))
-			{
-				m_errorReporter.declarationError(
-					5073_error,
-					imp->location(),
-					"Import \"" + path + "\" (referenced as \"" + imp->path() + "\") not found."
-				);
-				error = true;
-				continue;
-			}
+			// The import resolution in CompilerStack enforces this.
+			solAssert(_sourceUnits.count(path), "");
 			auto scope = m_scopes.find(_sourceUnits.at(path));
 			solAssert(scope != end(m_scopes), "");
 			if (!imp->symbolAliases().empty())
@@ -201,27 +193,6 @@ Declaration const* NameAndTypeResolver::pathFromCurrentScope(vector<ASTString> c
 		return candidates.front();
 	else
 		return nullptr;
-}
-
-void NameAndTypeResolver::warnVariablesNamedLikeInstructions() const
-{
-	for (auto const& instruction: evmasm::c_instructions)
-	{
-		string const instructionName{boost::algorithm::to_lower_copy(instruction.first)};
-		auto declarations = nameFromCurrentScope(instructionName, true);
-		for (Declaration const* const declaration: declarations)
-		{
-			solAssert(!!declaration, "");
-			if (dynamic_cast<MagicVariableDeclaration const* const>(declaration))
-				// Don't warn the user for what the user did not.
-				continue;
-			m_errorReporter.warning(
-				8261_error,
-				declaration->location(),
-				"Variable is shadowed in inline assembly by an instruction of the same name"
-			);
-		}
-	}
 }
 
 void NameAndTypeResolver::warnHomonymDeclarations() const

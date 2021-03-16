@@ -6,6 +6,7 @@
 #include <evmc/evmc.hpp>
 #include <algorithm>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -48,7 +49,7 @@ struct MockedAccount
     uint256be balance;
 
     /// The account storage map.
-    std::unordered_map<bytes32, storage_value> storage;
+    std::map<bytes32, storage_value> storage;
 
     /// Helper method for setting balance by numeric type.
     void set_balance(uint64_t x) noexcept
@@ -91,10 +92,15 @@ public:
         /// The address of the beneficiary account.
         address beneficiary;
 
+        /// The balance of the self-destructed account.
+        uint256be balance;
+
         /// Equal operator.
         bool operator==(const selfdestuct_record& other) const noexcept
         {
-            return selfdestructed == other.selfdestructed && beneficiary == other.beneficiary;
+            return selfdestructed == other.selfdestructed &&
+                beneficiary == other.beneficiary &&
+                balance == other.balance;
         }
     };
 
@@ -265,7 +271,7 @@ public:
     void selfdestruct(const address& addr, const address& beneficiary) noexcept override
     {
         record_account_access(addr);
-        recorded_selfdestructs.push_back({addr, beneficiary});
+        recorded_selfdestructs.push_back({addr, beneficiary, get_balance(addr)});
     }
 
     /// Call/create other contract (EVMC host method).

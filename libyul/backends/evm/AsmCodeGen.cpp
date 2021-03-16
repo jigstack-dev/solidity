@@ -117,32 +117,14 @@ void EthAssemblyAdapter::appendJumpToIf(LabelID _labelId, JumpType _jumpType)
 	appendJumpInstruction(evmasm::Instruction::JUMPI, _jumpType);
 }
 
-void EthAssemblyAdapter::appendBeginsub(LabelID, int)
-{
-	// TODO we could emulate that, though
-	yulAssert(false, "BEGINSUB not implemented for EVM 1.0");
-}
-
-void EthAssemblyAdapter::appendJumpsub(LabelID, int, int)
-{
-	// TODO we could emulate that, though
-	yulAssert(false, "JUMPSUB not implemented for EVM 1.0");
-}
-
-void EthAssemblyAdapter::appendReturnsub(int, int)
-{
-	// TODO we could emulate that, though
-	yulAssert(false, "RETURNSUB not implemented for EVM 1.0");
-}
-
 void EthAssemblyAdapter::appendAssemblySize()
 {
 	m_assembly.appendProgramSize();
 }
 
-pair<shared_ptr<AbstractAssembly>, AbstractAssembly::SubID> EthAssemblyAdapter::createSubAssembly()
+pair<shared_ptr<AbstractAssembly>, AbstractAssembly::SubID> EthAssemblyAdapter::createSubAssembly(string _name)
 {
-	shared_ptr<evmasm::Assembly> assembly{make_shared<evmasm::Assembly>()};
+	shared_ptr<evmasm::Assembly> assembly{make_shared<evmasm::Assembly>(std::move(_name))};
 	auto sub = m_assembly.newSub(assembly);
 	return {make_shared<EthAssemblyAdapter>(*assembly), static_cast<size_t>(sub.data())};
 }
@@ -239,7 +221,6 @@ void CodeGenerator::assemble(
 		EVMDialect::strictAssemblyForEVM(_evmVersion),
 		builtinContext,
 		_optimizeStackAllocation,
-		false,
 		_identifierAccess,
 		_useNamedLabelsForFunctions
 	);

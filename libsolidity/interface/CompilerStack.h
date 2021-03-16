@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <libsolidity/analysis/FunctionCallGraph.h>
 #include <libsolidity/interface/ReadFile.h>
 #include <libsolidity/interface/OptimiserSettings.h>
 #include <libsolidity/interface/Version.h>
@@ -96,6 +97,12 @@ public:
 		ParsedAndImported,
 		AnalysisPerformed,
 		CompilationSuccessful
+	};
+
+	enum class MetadataFormat {
+		WithReleaseVersionTag,
+		WithPrereleaseVersionTag,
+		NoMetadata
 	};
 
 	enum class MetadataHash {
@@ -244,6 +251,10 @@ public:
 	/// @returns the parsed source unit with the supplied name.
 	SourceUnit const& ast(std::string const& _sourceName) const;
 
+	/// @returns the parsed contract with the supplied name. Throws an exception if the contract
+	/// does not exist.
+	ContractDefinition const& contractDefinition(std::string const& _contractName) const;
+
 	/// Helper function for logs printing. Do only use in error cases, it's quite expensive.
 	/// line and columns are numbered starting from 1 with following order:
 	/// start line, start column, end line, end column
@@ -336,8 +347,10 @@ public:
 	/// @returns a JSON representing the estimated gas usage for contract creation, internal and external functions
 	Json::Value gasEstimates(std::string const& _contractName) const;
 
-	/// Overwrites the release/prerelease flag. Should only be used for testing.
-	void overwriteReleaseFlag(bool release) { m_release = release; }
+	/// Changes the format of the metadata appended at the end of the bytecode.
+	/// This is mostly a workaround to avoid bytecode and gas differences between compiler builds
+	/// caused by differences in metadata. Should only be used for testing.
+	void setMetadataFormat(MetadataFormat _metadataFormat) { m_metadataFormat = _metadataFormat; }
 private:
 	/// The state per source unit. Filled gradually during parsing.
 	struct Source
@@ -425,10 +438,6 @@ private:
 	/// Can only be called after state is SourcesSet.
 	Source const& source(std::string const& _sourceName) const;
 
-	/// @returns the parsed contract with the supplied name. Throws an exception if the contract
-	/// does not exist.
-	ContractDefinition const& contractDefinition(std::string const& _contractName) const;
-
 	/// @returns the metadata JSON as a compact string for the given contract.
 	std::string createMetadata(Contract const& _contract) const;
 
@@ -496,7 +505,7 @@ private:
 	/// Whether or not there has been an error during processing.
 	/// If this is true, the stack will refuse to generate code.
 	bool m_hasError = false;
-	bool m_release = VersionIsRelease;
+	MetadataFormat m_metadataFormat = VersionIsRelease ? MetadataFormat::WithReleaseVersionTag : MetadataFormat::WithPrereleaseVersionTag;
 };
 
 }
