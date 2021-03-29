@@ -197,13 +197,17 @@ void CHC::endVisit(ContractDefinition const& _contract)
 	connectBlocks(m_currentBlock, summary(_contract));
 
 	setCurrentBlock(*m_constructorSummaries.at(&_contract));
-	auto constructor = _contract.constructor();
-	auto txConstraints = state().txTypeConstraints();
-	if (!constructor || !constructor->isPayable())
-		txConstraints = txConstraints && state().txNonPayableConstraint();
-	m_queryPlaceholders[&_contract].push_back({txConstraints, errorFlag().currentValue(), m_currentBlock});
-	connectBlocks(m_currentBlock, interface(), txConstraints && errorFlag().currentValue() == 0);
 
+	solAssert(&_contract == m_currentContract, "");
+	if (_contract.canBeDeployed())
+	{
+		auto constructor = _contract.constructor();
+		auto txConstraints = state().txTypeConstraints();
+		if (!constructor || !constructor->isPayable())
+			txConstraints = txConstraints && state().txNonPayableConstraint();
+		m_queryPlaceholders[&_contract].push_back({txConstraints, errorFlag().currentValue(), m_currentBlock});
+		connectBlocks(m_currentBlock, interface(), txConstraints && errorFlag().currentValue() == 0);
+	}
 	SMTEncoder::endVisit(_contract);
 }
 
@@ -262,7 +266,8 @@ void CHC::endVisit(FunctionDefinition const& _function)
 	if (
 		!_function.isConstructor() &&
 		_function.isPublic() &&
-		contractFunctions(*m_currentContract).count(&_function)
+		contractFunctions(*m_currentContract).count(&_function) &&
+		m_currentContract->canBeDeployed()
 	)
 	{
 		auto sum = summary(_function);
@@ -915,10 +920,15 @@ void CHC::setCurrentBlock(Predicate const& _block)
 set<unsigned> CHC::transactionVerificationTargetsIds(ASTNode const* _txRoot)
 {
 	set<unsigned> verificationTargetsIds;
-	solidity::util::BreadthFirstSearch<ASTNode const*>{{_txRoot}}.run([&](auto const* function, auto&& _addChild) {
-		verificationTargetsIds.insert(m_functionTargetIds[function].begin(), m_functionTargetIds[function].end());
-		for (auto const* called: m_callGraph[function])
-		_addChild(called);
+	struct ASTNodeCompare: EncodingContext::IdCompare
+	{
+		bool operator<(ASTNodeCompare _other) const { return operator()(node, _other.node); }
+		ASTNode const* node;
+	};
+	solidity::util::BreadthFirstSearch<ASTNodeCompare>{{{{}, _txRoot}}}.run([&](auto _node, auto&& _addChild) {
+		verificationTargetsIds.insert(m_functionTargetIds[_node.node].begin(), m_functionTargetIds[_node.node].end());
+		for (ASTNode const* called: m_callGraph[_node.node])
+			_addChild({{}, called});
 	});
 	return verificationTargetsIds;
 }
