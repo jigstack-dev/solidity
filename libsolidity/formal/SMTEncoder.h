@@ -129,6 +129,7 @@ protected:
 	bool visit(IfStatement const&) override { return false; }
 	bool visit(WhileStatement const&) override { return false; }
 	bool visit(ForStatement const&) override { return false; }
+	void endVisit(ForStatement const&) override {}
 	void endVisit(VariableDeclarationStatement const& _node) override;
 	bool visit(Assignment const& _node) override;
 	void endVisit(Assignment const& _node) override;
@@ -150,6 +151,8 @@ protected:
 	bool visit(InlineAssembly const& _node) override;
 	void endVisit(Break const&) override {}
 	void endVisit(Continue const&) override {}
+	bool visit(TryCatchClause const&) override { return true; }
+	void endVisit(TryCatchClause const&) override {}
 	bool visit(TryStatement const&) override { return false; }
 
 	virtual void pushInlineFrame(CallableDeclaration const&);
@@ -220,10 +223,11 @@ protected:
 
 	void arrayPush(FunctionCall const& _funCall);
 	void arrayPop(FunctionCall const& _funCall);
-	void arrayPushPopAssign(Expression const& _expr, smtutil::Expression const& _array);
 	/// Allows BMC and CHC to create verification targets for popping
 	/// an empty array.
 	virtual void makeArrayPopVerificationTarget(FunctionCall const&) {}
+	/// Allows BMC and CHC to create verification targets for out of bounds access.
+	virtual void makeOutOfBoundsVerificationTarget(IndexAccess const&) {}
 
 	void addArrayLiteralAssertions(
 		smt::SymbolicArrayVariable& _symArray,
@@ -248,6 +252,7 @@ protected:
 	void assignment(VariableDeclaration const& _variable, smtutil::Expression const& _value);
 	/// Handles assignments between generic expressions.
 	/// Will also be used for assignments of tuple components.
+	void assignment(Expression const& _left, smtutil::Expression const& _right);
 	void assignment(
 		Expression const& _left,
 		smtutil::Expression const& _right,
@@ -261,7 +266,7 @@ protected:
 	void expressionToTupleAssignment(std::vector<std::shared_ptr<VariableDeclaration>> const& _variables, Expression const& _rhs);
 
 	/// Maps a variable to an SSA index.
-	using VariableIndices = std::unordered_map<VariableDeclaration const*, int>;
+	using VariableIndices = std::unordered_map<VariableDeclaration const*, unsigned>;
 
 	/// Visits the branch given by the statement, pushes and pops the current path conditions.
 	/// @param _condition if present, asserts that this condition is true within the branch.
@@ -290,10 +295,9 @@ protected:
 	/// @returns whether _a or a subtype of _a is the same as _b.
 	bool sameTypeOrSubtype(Type const* _a, Type const* _b);
 
-	/// Given two different branches and the touched variables,
-	/// merge the touched variables into after-branch ite variables
-	/// using the branch condition as guard.
-	void mergeVariables(std::set<VariableDeclaration const*> const& _variables, smtutil::Expression const& _condition, VariableIndices const& _indicesEndTrue, VariableIndices const& _indicesEndFalse);
+	/// Given the state of the symbolic variables at the end of two different branches,
+	/// create a merged state using the given branch condition.
+	void mergeVariables(smtutil::Expression const& _condition, VariableIndices const& _indicesEndTrue, VariableIndices const& _indicesEndFalse);
 	/// Tries to create an uninitialized variable and returns true on success.
 	bool createVariable(VariableDeclaration const& _varDecl);
 
@@ -398,6 +402,10 @@ protected:
 
 	/// Stores the current function/modifier call/invocation path.
 	std::vector<CallStackEntry> m_callStack;
+
+	/// Stack of scopes.
+	std::vector<ScopeOpener const*> m_scopes;
+
 	/// Returns true if the current function was not visited by
 	/// a function call.
 	bool isRootFunction();

@@ -88,6 +88,7 @@ public:
 	bool visit(ModifierDefinition const& _node) override;
 	bool visit(ModifierInvocation const& _node) override;
 	bool visit(EventDefinition const& _node) override;
+	bool visit(ErrorDefinition const& _node) override;
 	bool visit(ElementaryTypeName const& _node) override;
 	bool visit(UserDefinedTypeName const& _node) override;
 	bool visit(FunctionTypeName const& _node) override;
@@ -106,6 +107,7 @@ public:
 	bool visit(Return const& _node) override;
 	bool visit(Throw const& _node) override;
 	bool visit(EmitStatement const& _node) override;
+	bool visit(RevertStatement const& _node) override;
 	bool visit(VariableDeclarationStatement const& _node) override;
 	bool visit(ExpressionStatement const& _node) override;
 	bool visit(Conditional const& _node) override;

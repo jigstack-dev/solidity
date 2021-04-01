@@ -23,6 +23,7 @@
 
 #include <libsolidity/ast/AST.h>
 
+#include <libsolidity/ast/CallGraph.h>
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/ast/AST_accept.h>
 #include <libsolidity/ast/TypeProvider.h>
@@ -172,6 +173,22 @@ vector<EventDefinition const*> const& ContractDefinition::interfaceEvents() cons
 
 		return interfaceEvents;
 	});
+}
+
+vector<ErrorDefinition const*> ContractDefinition::interfaceErrors(bool _requireCallGraph) const
+{
+	set<ErrorDefinition const*, CompareByID> result;
+	for (ContractDefinition const* contract: annotation().linearizedBaseContracts)
+		result += filteredNodes<ErrorDefinition>(contract->m_subNodes);
+	solAssert(annotation().creationCallGraph.set() == annotation().deployedCallGraph.set(), "");
+	if (_requireCallGraph)
+		solAssert(annotation().creationCallGraph.set(), "");
+	if (annotation().creationCallGraph.set())
+	{
+		result += (*annotation().creationCallGraph)->usedErrors;
+		result += (*annotation().deployedCallGraph)->usedErrors;
+	}
+	return convertContainer<vector<ErrorDefinition const*>>(move(result));
 }
 
 vector<pair<util::FixedHash<4>, FunctionTypePointer>> const& ContractDefinition::interfaceFunctionList(bool _includeInheritedFunctions) const
@@ -462,6 +479,24 @@ EventDefinitionAnnotation& EventDefinition::annotation() const
 	return initAnnotation<EventDefinitionAnnotation>();
 }
 
+Type const* ErrorDefinition::type() const
+{
+	return TypeProvider::function(*this);
+}
+
+FunctionTypePointer ErrorDefinition::functionType(bool _internal) const
+{
+	if (_internal)
+		return TypeProvider::function(*this);
+	else
+		return nullptr;
+}
+
+ErrorDefinitionAnnotation& ErrorDefinition::annotation() const
+{
+	return initAnnotation<ErrorDefinitionAnnotation>();
+}
+
 SourceUnit const& Scopable::sourceUnit() const
 {
 	ASTNode const* s = scope();
@@ -504,10 +539,10 @@ bool Declaration::isStructMember() const
 	return dynamic_cast<StructDefinition const*>(scope());
 }
 
-bool Declaration::isEventParameter() const
+bool Declaration::isEventOrErrorParameter() const
 {
 	solAssert(scope(), "");
-	return dynamic_cast<EventDefinition const*>(scope());
+	return dynamic_cast<EventDefinition const*>(scope()) || dynamic_cast<ErrorDefinition const*>(scope());
 }
 
 DeclarationAnnotation& Declaration::annotation() const
@@ -653,7 +688,7 @@ set<VariableDeclaration::Location> VariableDeclaration::allowedDataLocations() c
 {
 	using Location = VariableDeclaration::Location;
 
-	if (!hasReferenceOrMappingType() || isStateVariable() || isEventParameter())
+	if (!hasReferenceOrMappingType() || isStateVariable() || isEventOrErrorParameter())
 		return set<Location>{ Location::Unspecified };
 	else if (isCallableOrCatchParameter())
 	{

@@ -41,7 +41,9 @@
 #include <algorithm>
 #include <limits>
 #include <type_traits>
+#include <range/v3/view/map.hpp>
 
+using namespace ranges;
 using namespace std;
 using namespace solidity::langutil;
 
@@ -269,7 +271,7 @@ bool ASTJsonConverter::visit(ContractDefinition const& _node)
 		make_pair("contractKind", contractKind(_node.contractKind())),
 		make_pair("abstract", _node.abstract()),
 		make_pair("baseContracts", toJson(_node.baseContracts())),
-		make_pair("contractDependencies", getContainerIds(_node.annotation().contractDependencies, true)),
+		make_pair("contractDependencies", getContainerIds(_node.annotation().contractDependencies | views::keys)),
 		make_pair("nodes", toJson(_node.subNodes())),
 		make_pair("scope", idOrNull(_node.scope()))
 	};
@@ -481,6 +483,17 @@ bool ASTJsonConverter::visit(EventDefinition const& _node)
 	return false;
 }
 
+bool ASTJsonConverter::visit(ErrorDefinition const& _node)
+{
+	setJsonNode(_node, "ErrorDefinition", {
+		make_pair("name", _node.name()),
+		make_pair("nameLocation", sourceLocationToString(_node.nameLocation())),
+		make_pair("documentation", _node.documentation() ? toJson(*_node.documentation()) : Json::nullValue),
+		make_pair("parameters", toJson(_node.parameterList()))
+	});
+	return false;
+}
+
 bool ASTJsonConverter::visit(ElementaryTypeName const& _node)
 {
 	std::vector<pair<string, Json::Value>> attributes = {
@@ -660,6 +673,14 @@ bool ASTJsonConverter::visit(EmitStatement const& _node)
 {
 	setJsonNode(_node, "EmitStatement", {
 		make_pair("eventCall", toJson(_node.eventCall()))
+	});
+	return false;
+}
+
+bool ASTJsonConverter::visit(RevertStatement const& _node)
+{
+	setJsonNode(_node, "RevertStatement", {
+		make_pair("errorCall", toJson(_node.errorCall()))
 	});
 	return false;
 }

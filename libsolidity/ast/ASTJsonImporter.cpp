@@ -151,6 +151,8 @@ ASTPointer<ASTNode> ASTJsonImporter::convertJsonToASTNode(Json::Value const& _js
 		return createModifierInvocation(_json);
 	if (nodeType == "EventDefinition")
 		return createEventDefinition(_json);
+	if (nodeType == "ErrorDefinition")
+		return createErrorDefinition(_json);
 	if (nodeType == "ElementaryTypeName")
 		return createElementaryTypeName(_json);
 	if (nodeType == "UserDefinedTypeName")
@@ -189,6 +191,8 @@ ASTPointer<ASTNode> ASTJsonImporter::convertJsonToASTNode(Json::Value const& _js
 		return createReturn(_json);
 	if (nodeType == "EmitStatement")
 		return createEmitStatement(_json);
+	if (nodeType == "RevertStatement")
+		return createRevertStatement(_json);
 	if (nodeType == "Throw")
 		return createThrow(_json);
 	if (nodeType == "VariableDeclarationStatement")
@@ -539,6 +543,17 @@ ASTPointer<EventDefinition> ASTJsonImporter::createEventDefinition(Json::Value c
 	);
 }
 
+ASTPointer<ErrorDefinition> ASTJsonImporter::createErrorDefinition(Json::Value const&  _node)
+{
+	return createASTNode<ErrorDefinition>(
+		_node,
+		memberAsASTString(_node, "name"),
+		createNameSourceLocation(_node),
+		_node["documentation"].isNull() ? nullptr : createDocumentation(member(_node, "documentation")),
+		createParameterList(member(_node, "parameters"))
+	);
+}
+
 ASTPointer<ElementaryTypeName> ASTJsonImporter::createElementaryTypeName(Json::Value const& _node)
 {
 	unsigned short firstNum;
@@ -731,6 +746,15 @@ ASTPointer<EmitStatement> ASTJsonImporter::createEmitStatement(Json::Value const
 		_node,
 		nullOrASTString(_node, "documentation"),
 		createFunctionCall(member(_node, "eventCall"))
+	);
+}
+
+ASTPointer<RevertStatement> ASTJsonImporter::createRevertStatement(Json::Value const&  _node)
+{
+	return createASTNode<RevertStatement>(
+		_node,
+		nullOrASTString(_node, "documentation"),
+		createFunctionCall(member(_node, "errorCall"))
 	);
 }
 

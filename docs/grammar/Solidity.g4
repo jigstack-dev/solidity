@@ -19,6 +19,7 @@ sourceUnit: (
 	| constantVariableDeclaration
 	| structDefinition
 	| enumDefinition
+	| errorDefinition
 )* EOF;
 
 //@doc: inline
@@ -90,6 +91,7 @@ contractBodyElement:
 	| enumDefinition
 	| stateVariableDeclaration
 	| eventDefinition
+	| errorDefinition
 	| usingDirective;
 //@doc:inline
 namedArgument: name=identifier Colon value=expression;
@@ -290,6 +292,18 @@ eventDefinition:
 	Semicolon;
 
 /**
+ * Parameter of an error.
+ */
+errorParameter: type=typeName name=identifier?;
+/**
+ * Definition of an error.
+ */
+errorDefinition:
+	Error name=identifier
+	LParen (parameters+=errorParameter (Comma parameters+=errorParameter)*)? RParen
+	Semicolon;
+
+/**
  * Using directive to bind library functions to types.
  * Can occur within contracts and libraries.
  */
@@ -365,9 +379,9 @@ tupleExpression: LParen (expression? ( Comma expression?)* ) RParen;
 inlineArrayExpression: LBrack (expression ( Comma expression)* ) RBrack;
 
 /**
- * Besides regular non-keyword Identifiers, the 'from' keyword can also occur as identifier outside of import statements.
+ * Besides regular non-keyword Identifiers, some keywords like 'from' and 'error' can also be used as identifiers.
  */
-identifier: Identifier | From;
+identifier: Identifier | From | Error | Revert;
 
 literal: stringLiteral | numberLiteral | booleanLiteral | hexStringLiteral | unicodeStringLiteral;
 booleanLiteral: True | False;
@@ -408,6 +422,7 @@ statement:
 	| tryStatement
 	| returnStatement
 	| emitStatement
+	| revertStatement
 	| assemblyStatement
 ;
 
@@ -445,6 +460,10 @@ returnStatement: Return expression? Semicolon;
  * An emit statement. The contained expression needs to refer to an event.
  */
 emitStatement: Emit expression callArgumentList Semicolon;
+/**
+ * A revert statement. The contained expression needs to refer to an error.
+ */
+revertStatement: Revert expression callArgumentList Semicolon;
 /**
  * An inline assembly block.
  * The contents of an inline assembly block use a separate scanner/lexer, i.e. the set of keywords and

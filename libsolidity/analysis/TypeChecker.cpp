@@ -42,6 +42,7 @@
 
 #include <range/v3/view/zip.hpp>
 #include <range/v3/view/drop_exactly.hpp>
+#include <range/v3/algorithm/count_if.hpp>
 
 #include <memory>
 #include <vector>
@@ -686,34 +687,23 @@ void TypeChecker::visitManually(
 bool TypeChecker::visit(EventDefinition const& _eventDef)
 {
 	solAssert(_eventDef.visibility() > Visibility::Internal, "");
-	unsigned numIndexed = 0;
-	for (ASTPointer<VariableDeclaration> const& var: _eventDef.parameters())
-	{
-		if (var->isIndexed())
-			numIndexed++;
-		if (type(*var)->containsNestedMapping())
-			m_errorReporter.typeError(
-				3448_error,
-				var->location(),
-				"Type containing a (nested) mapping is not allowed as event parameter type."
-			);
-		if (!type(*var)->interfaceType(false))
-			m_errorReporter.typeError(3417_error, var->location(), "Internal or recursive type is not allowed as event parameter type.");
-		if (
-			!useABICoderV2() &&
-			!typeSupportedByOldABIEncoder(*type(*var), false /* isLibrary */)
-		)
-			m_errorReporter.typeError(
-				3061_error,
-				var->location(),
-				"This type is only supported in ABI coder v2. "
-				"Use \"pragma abicoder v2;\" to enable the feature."
-			);
-	}
+	checkErrorAndEventParameters(_eventDef);
+
+	auto numIndexed = ranges::count_if(
+		_eventDef.parameters(),
+		[](ASTPointer<VariableDeclaration> const& var) { return var->isIndexed(); }
+	);
 	if (_eventDef.isAnonymous() && numIndexed > 4)
 		m_errorReporter.typeError(8598_error, _eventDef.location(), "More than 4 indexed arguments for anonymous event.");
 	else if (!_eventDef.isAnonymous() && numIndexed > 3)
 		m_errorReporter.typeError(7249_error, _eventDef.location(), "More than 3 indexed arguments for event.");
+	return true;
+}
+
+bool TypeChecker::visit(ErrorDefinition const& _errorDef)
+{
+	solAssert(_errorDef.visibility() > Visibility::Internal, "");
+	checkErrorAndEventParameters(_errorDef);
 	return true;
 }
 
@@ -1176,6 +1166,18 @@ void TypeChecker::endVisit(EmitStatement const& _emit)
 	)
 		m_errorReporter.typeError(9292_error, _emit.eventCall().expression().location(), "Expression has to be an event invocation.");
 }
+
+void TypeChecker::endVisit(RevertStatement const& _revert)
+{
+	FunctionCall const& errorCall = _revert.errorCall();
+	if (
+		*errorCall.annotation().kind != FunctionCallKind::FunctionCall ||
+		type(errorCall.expression())->category() != Type::Category::Function ||
+		dynamic_cast<FunctionType const&>(*type(errorCall.expression())).kind() != FunctionType::Kind::Error
+	)
+		m_errorReporter.typeError(1885_error, errorCall.expression().location(), "Expression has to be an error.");
+}
+
 
 bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 {
@@ -2279,7 +2281,8 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		_functionType->kind() == FunctionType::Kind::DelegateCall ||
 		_functionType->kind() == FunctionType::Kind::External ||
 		_functionType->kind() == FunctionType::Kind::Creation ||
-		_functionType->kind() == FunctionType::Kind::Event;
+		_functionType->kind() == FunctionType::Kind::Event ||
+		_functionType->kind() == FunctionType::Kind::Error;
 
 	if (callRequiresABIEncoding && !useABICoderV2())
 	{
@@ -2659,24 +2662,6 @@ void TypeChecker::endVisit(NewExpression const& _newExpression)
 		if (contract->abstract())
 			m_errorReporter.typeError(4614_error, _newExpression.location(), "Cannot instantiate an abstract contract.");
 
-		if (m_currentContract)
-		{
-			// TODO this is not properly detecting creation-cycles if they go through
-			// internal library functions or free functions. It will be caught at
-			// code generation time, but it would of course be better to catch it here.
-			m_currentContract->annotation().contractDependencies.insert(contract);
-			solAssert(
-				!contract->annotation().linearizedBaseContracts.empty(),
-				"Linearized base contracts not yet available."
-			);
-			if (contractDependenciesAreCyclic(*m_currentContract))
-				m_errorReporter.typeError(
-					4579_error,
-					_newExpression.location(),
-					"Circular reference for contract creation (cannot create instance of derived or same contract)."
-				);
-		}
-
 		_newExpression.annotation().type = FunctionType::newExpressionType(*contract);
 		_newExpression.annotation().isPure = false;
 	}
@@ -2950,21 +2935,6 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 					_memberAccess.location(),
 					"\"runtimeCode\" is not available for contracts containing immutable variables."
 				);
-			if (m_currentContract)
-			{
-				// TODO in the same way as with ``new``,
-				// this is not properly detecting creation-cycles if they go through
-				// internal library functions or free functions. It will be caught at
-				// code generation time, but it would of course be better to catch it here.
-
-				m_currentContract->annotation().contractDependencies.insert(&accessedContractType.contractDefinition());
-				if (contractDependenciesAreCyclic(*m_currentContract))
-					m_errorReporter.typeError(
-						4224_error,
-						_memberAccess.location(),
-						"Circular reference for contract code access."
-					);
-			}
 		}
 		else if (magicType->kind() == MagicType::Kind::MetaType && memberName == "name")
 			annotation.isPure = true;
@@ -3426,20 +3396,30 @@ void TypeChecker::endVisit(UsingForDirective const& _usingFor)
 		);
 }
 
-bool TypeChecker::contractDependenciesAreCyclic(
-	ContractDefinition const& _contract,
-	std::set<ContractDefinition const*> const& _seenContracts
-) const
+void TypeChecker::checkErrorAndEventParameters(CallableDeclaration const& _callable)
 {
-	// Naive depth-first search that remembers nodes already seen.
-	if (_seenContracts.count(&_contract))
-		return true;
-	set<ContractDefinition const*> seen(_seenContracts);
-	seen.insert(&_contract);
-	for (auto const* c: _contract.annotation().contractDependencies)
-		if (contractDependenciesAreCyclic(*c, seen))
-			return true;
-	return false;
+	string kind = dynamic_cast<EventDefinition const*>(&_callable) ? "event" : "error";
+	for (ASTPointer<VariableDeclaration> const& var: _callable.parameters())
+	{
+		if (type(*var)->containsNestedMapping())
+			m_errorReporter.typeError(
+				3448_error,
+				var->location(),
+				"Type containing a (nested) mapping is not allowed as " + kind + " parameter type."
+			);
+		if (!type(*var)->interfaceType(false))
+			m_errorReporter.typeError(3417_error, var->location(), "Internal or recursive type is not allowed as " + kind + " parameter type.");
+		if (
+			!useABICoderV2() &&
+			!typeSupportedByOldABIEncoder(*type(*var), false /* isLibrary */)
+		)
+			m_errorReporter.typeError(
+				3061_error,
+				var->location(),
+				"This type is only supported in ABI coder v2. "
+				"Use \"pragma abicoder v2;\" to enable the feature."
+			);
+	}
 }
 
 Declaration const& TypeChecker::dereference(Identifier const& _identifier) const

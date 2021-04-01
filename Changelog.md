@@ -2,9 +2,17 @@
 
 Language Features:
  * Possibility to use ``bytes.concat`` with variable number of ``bytes`` and ``bytesNN`` arguments which behaves as a restricted version of `abi.encodePacked` with a more descriptive name.
+ * Support custom errors via the ``error`` keyword and introduce the ``revert`` statement.
+
 
 Compiler Features:
+ * Analysis: Properly detect circular references to the bytecode of other contracts across all function calls.
+ * Commandline Interface: Model checker option ``--model-checker-targets`` also accepts ``outOfBounds``.
  * Low-Level Inliner: Inline ordinary jumps to small blocks and jumps to small blocks that terminate.
+ * SMTChecker: Report local variables in CHC counterexamples.
+ * SMTChecker: Report out of bounds index access for arrays and fixed bytes.
+ * Standard JSON: Model checker option ``settings.modelChecker.targets`` also accepts ``outOfBounds``.
+ * Yul Optimizer: Added a new step FunctionSpecializer, that specializes a function with its literal arguments.
 
 
 Bugfixes:
@@ -12,6 +20,7 @@ Bugfixes:
  * SMTChecker: Fix false positive and false negative on ``push`` as LHS of a compound assignment.
  * SMTChecker: Fix false positive in contracts that cannot be deployed.
  * SMTChecker: Fix internal error on public getter returning dynamic data on older EVM versions where these are not available.
+ * SMTChecker: Fix internal error on try-catch with function call in catch block.
 
 
 AST Changes:

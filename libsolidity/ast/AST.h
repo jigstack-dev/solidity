@@ -65,24 +65,7 @@ class ASTConstVisitor;
 class ASTNode: private boost::noncopyable
 {
 public:
-	struct CompareByID
-	{
-		using is_transparent = void;
-
-		bool operator()(ASTNode const* _lhs, ASTNode const* _rhs) const
-		{
-			return _lhs->id() < _rhs->id();
-		}
-		bool operator()(ASTNode const* _lhs, int64_t _rhs) const
-		{
-			return _lhs->id() < _rhs;
-		}
-		bool operator()(int64_t _lhs, ASTNode const* _rhs) const
-		{
-			return _lhs < _rhs->id();
-		}
-	};
-
+	using CompareByID = frontend::ASTCompareByID<ASTNode>;
 	using SourceLocation = langutil::SourceLocation;
 
 	explicit ASTNode(int64_t _id, SourceLocation _location);
@@ -272,7 +255,7 @@ public:
 	/// @returns true if this is a declaration of a struct member.
 	bool isStructMember() const;
 	/// @returns true if this is a declaration of a parameter of an event.
-	bool isEventParameter() const;
+	bool isEventOrErrorParameter() const;
 
 	/// @returns the type of expressions referencing this declaration.
 	/// This can only be called once types of variable declarations have already been resolved.
@@ -513,6 +496,10 @@ public:
 	std::vector<FunctionDefinition const*> definedFunctions() const { return filteredNodes<FunctionDefinition>(m_subNodes); }
 	std::vector<EventDefinition const*> events() const { return filteredNodes<EventDefinition>(m_subNodes); }
 	std::vector<EventDefinition const*> const& interfaceEvents() const;
+	/// @returns all errors defined in this contract or any base contract
+	/// and all errors referenced during execution.
+	/// @param _requireCallGraph if false, do not fail if the call graph has not been computed yet.
+	std::vector<ErrorDefinition const*> interfaceErrors(bool _requireCallGraph = true) const;
 	bool isInterface() const { return m_contractKind == ContractKind::Interface; }
 	bool isLibrary() const { return m_contractKind == ContractKind::Library; }
 
@@ -740,7 +727,7 @@ private:
 
 /**
  * Base class for all nodes that define function-like objects, i.e. FunctionDefinition,
- * EventDefinition and ModifierDefinition.
+ * EventDefinition, ErrorDefinition and ModifierDefinition.
  */
 class CallableDeclaration: public Declaration, public VariableScope
 {
@@ -1157,6 +1144,47 @@ public:
 
 private:
 	bool m_anonymous = false;
+};
+
+/**
+ * Definition of an error type usable in ``revert(MyError(x))``, ``require(condition, MyError(x))``
+ * and ``catch MyError(_x)``.
+ */
+class ErrorDefinition: public CallableDeclaration, public StructurallyDocumented, public ScopeOpener
+{
+public:
+	ErrorDefinition(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<ASTString> const& _name,
+		SourceLocation _nameLocation,
+		ASTPointer<StructuredDocumentation> const& _documentation,
+		ASTPointer<ParameterList> const& _parameters
+	):
+		CallableDeclaration(_id, _location, _name, std::move(_nameLocation), Visibility::Default, _parameters),
+		StructurallyDocumented(_documentation)
+	{
+	}
+
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	Type const* type() const override;
+
+	FunctionTypePointer functionType(bool _internal) const override;
+
+	bool isVisibleInDerivedContracts() const override { return true; }
+	bool isVisibleViaContractTypeAccess() const override { return true; }
+
+	ErrorDefinitionAnnotation& annotation() const override;
+
+	CallableDeclaration const& resolveVirtual(
+		ContractDefinition const&,
+		ContractDefinition const*
+	) const override
+	{
+		return *this;
+	}
 };
 
 /**
@@ -1680,6 +1708,31 @@ public:
 		Statement(_id, _location, _docString) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
+};
+
+/**
+ * The revert statement is used to revert state changes and return error data.
+ */
+class RevertStatement: public Statement
+{
+public:
+	explicit RevertStatement(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<ASTString> const& _docString,
+		ASTPointer<FunctionCall> _functionCall
+	):
+		Statement(_id, _location, _docString), m_errorCall(std::move(_functionCall))
+	{
+		solAssert(m_errorCall, "");
+	}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	FunctionCall const& errorCall() const { return *m_errorCall; }
+
+private:
+	ASTPointer<FunctionCall> m_errorCall;
 };
 
 /**

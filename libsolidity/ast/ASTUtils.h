@@ -22,6 +22,8 @@ namespace solidity::frontend
 {
 
 class VariableDeclaration;
+class Declaration;
+class Expression;
 
 /// Find the topmost referenced constant variable declaration when the given variable
 /// declaration value is an identifier. Works only for constant variable declarations.

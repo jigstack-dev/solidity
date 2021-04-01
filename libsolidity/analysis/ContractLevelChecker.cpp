@@ -25,9 +25,9 @@
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
+#include <libsolutil/FunctionSelector.h>
 #include <liblangutil/ErrorReporter.h>
 #include <boost/range/adaptor/reversed.hpp>
-
 
 using namespace std;
 using namespace solidity;

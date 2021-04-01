@@ -29,6 +29,7 @@
 #include <libsolidity/codegen/LValue.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 
 #include <libevmasm/GasMeter.h>
@@ -912,6 +913,23 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			m_context << logInstruction(numIndexed);
 			break;
 		}
+		case FunctionType::Kind::Error:
+		{
+			_functionCall.expression().accept(*this);
+			vector<Type const*> argumentTypes;
+			for (ASTPointer<Expression const> const& arg: _functionCall.sortedArguments())
+			{
+				arg->accept(*this);
+				argumentTypes.push_back(arg->annotation().type);
+			}
+			solAssert(dynamic_cast<ErrorDefinition const*>(&function.declaration()), "");
+			utils().revertWithError(
+				function.externalSignature(),
+				function.parameterTypes(),
+				argumentTypes
+			);
+			break;
+		}
 		case FunctionType::Kind::BlockHash:
 		{
 			acceptAndConvert(*arguments[0], *function.parameterTypes()[0], true);
@@ -1420,6 +1438,11 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 							solAssert(false, "event not found");
 						// no-op, because the parent node will do the job
 						break;
+					case FunctionType::Kind::Error:
+						if (!dynamic_cast<ErrorDefinition const*>(_memberAccess.annotation().referencedDeclaration))
+							solAssert(false, "error not found");
+						// no-op, because the parent node will do the job
+						break;
 					case FunctionType::Kind::DelegateCall:
 						_memberAccess.expression().accept(*this);
 						m_context << funType->externalIdentifier();
@@ -1859,6 +1882,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		solAssert(
 			dynamic_cast<VariableDeclaration const*>(_memberAccess.annotation().referencedDeclaration) ||
 			dynamic_cast<FunctionDefinition const*>(_memberAccess.annotation().referencedDeclaration) ||
+			dynamic_cast<ErrorDefinition const*>(_memberAccess.annotation().referencedDeclaration) ||
 			category == Type::Category::TypeType ||
 			category == Type::Category::Module,
 			""
@@ -2088,6 +2112,10 @@ void ExpressionCompiler::endVisit(Identifier const& _identifier)
 			m_context.appendLibraryAddress(contract->fullyQualifiedName());
 	}
 	else if (dynamic_cast<EventDefinition const*>(declaration))
+	{
+		// no-op
+	}
+	else if (dynamic_cast<ErrorDefinition const*>(declaration))
 	{
 		// no-op
 	}
