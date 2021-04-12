@@ -1,6 +1,7 @@
 ### 0.8.4 (unreleased)
 
 Language Features:
+ * Assembly / Yul: Allow hex string literals.
  * Possibility to use ``bytes.concat`` with variable number of ``bytes`` and ``bytesNN`` arguments which behaves as a restricted version of `abi.encodePacked` with a more descriptive name.
  * Support custom errors via the ``error`` keyword and introduce the ``revert`` statement.
 
@@ -9,10 +10,12 @@ Compiler Features:
  * Analysis: Properly detect circular references to the bytecode of other contracts across all function calls.
  * Commandline Interface: Model checker option ``--model-checker-targets`` also accepts ``outOfBounds``.
  * Low-Level Inliner: Inline ordinary jumps to small blocks and jumps to small blocks that terminate.
+ * SMTChecker: Deprecate ``pragma experimental SMTChecker;`` and set default model checker engine to ``none``.
  * SMTChecker: Report local variables in CHC counterexamples.
  * SMTChecker: Report out of bounds index access for arrays and fixed bytes.
  * Standard JSON: Model checker option ``settings.modelChecker.targets`` also accepts ``outOfBounds``.
  * Yul Optimizer: Added a new step FunctionSpecializer, that specializes a function with its literal arguments.
+ * Yul EVM Code Transform: Stack Optimization: Reuse slots of unused function arguments and defer allocating stack slots for return variables until after expression statements and assignments that do not reference them.
 
 
 Bugfixes:
