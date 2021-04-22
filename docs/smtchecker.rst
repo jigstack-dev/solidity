@@ -448,10 +448,13 @@ the JSON option ``settings.modelChecker.timeout=<time>``, where 0 means no timeo
 Verification Targets
 ====================
 
-The types of verification targets created by the SMTChecker can also be customized via
-the CLI option ``--model-checker-target <targets>`` or the JSON option
-``settings.modelChecker.targets=<targets>``, where ``<targets>`` is a no-space-comma-separated
-list of one or more verification targets. The keywords that represent the targets are:
+The types of verification targets created by the SMTChecker can also be
+customized via the CLI option ``--model-checker-target <targets>`` or the JSON
+option ``settings.modelChecker.targets=<targets>``.
+In the CLI case, ``<targets>`` is a no-space-comma-separated list of one or
+more verification targets, and an array of one or more targets as strings in
+the JSON input.
+The keywords that represent the targets are:
 
 - Assertions: ``assert``.
 - Arithmetic underflow: ``underflow``.
@@ -461,14 +464,42 @@ list of one or more verification targets. The keywords that represent the target
 - Popping an empty array: ``popEmptyArray``.
 - Out of bounds array/fixed bytes index access: ``outOfBounds``.
 - Insufficient funds for a transfer: ``balance``.
-- All of the above: ``all``.
-- None of the above: ``none``.
+- All of the above: ``default`` (CLI only).
 
 A common subset of targets might be, for example:
 ``--model-checker-targets assert,overflow``.
 
 There is no precise heuristic on how and when to split verification targets,
 but it can be useful especially when dealing with large contracts.
+
+Verified Contracts
+==================
+
+By default all the deployable contracts in the given sources are analyzed separately as
+the one that will be deployed. This means that if a contract has many direct
+and indirect inheritance parents, all of them will be analyzed on their own,
+even though only the most derived will be accessed directly on the blockchain.
+This causes an unnecessary burden on the SMTChecker and the solver.  To aid
+cases like this, users can specify which contracts should be analyzed as the
+deployed one. The parent contracts are of course still analyzed, but only in
+the context of the most derived contract, reducing the complexity of the
+encoding and generated queries. Note that abstract contracts are by default
+not analyzed as the most derived by the SMTChecker.
+
+The chosen contracts can be given via a comma-separated list (whitespace is not
+allowed) of <source>:<contract> pairs in the CLI:
+``--model-checker-contracts "<source1.sol:contract1>,<source2.sol:contract2>,<source2.sol:contract3>"``,
+and via the object ``settings.modelChecker.contracts`` in the :ref:`JSON input<compiler-api>`,
+which has the following form:
+
+.. code-block:: none
+
+  contracts
+  {
+      "source1.sol": ["contract1"],
+      "source2.sol": ["contract2", "contract3"]
+  }
+
 
 .. _smtchecker_engines:
 

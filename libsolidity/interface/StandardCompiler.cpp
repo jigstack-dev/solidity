@@ -435,7 +435,7 @@ std::optional<Json::Value> checkSettingsKeys(Json::Value const& _input)
 
 std::optional<Json::Value> checkModelCheckerSettingsKeys(Json::Value const& _input)
 {
-	static set<string> keys{"engine", "targets", "timeout"};
+	static set<string> keys{"contracts", "engine", "targets", "timeout"};
 	return checkKeys(_input, keys, "modelChecker");
 }
 
@@ -901,6 +901,37 @@ std::variant<StandardCompiler::InputsAndSettings, Json::Value> StandardCompiler:
 	if (auto result = checkModelCheckerSettingsKeys(modelCheckerSettings))
 		return *result;
 
+	if (modelCheckerSettings.isMember("contracts"))
+	{
+		auto const& sources = modelCheckerSettings["contracts"];
+		if (!sources.isObject() && !sources.isNull())
+			return formatFatalError("JSONError", "settings.modelChecker.contracts is not a JSON object.");
+
+		map<string, set<string>> sourceContracts;
+		for (auto const& source: sources.getMemberNames())
+		{
+			if (source.empty())
+				return formatFatalError("JSONError", "Source name cannot be empty.");
+
+			auto const& contracts = sources[source];
+			if (!contracts.isArray())
+				return formatFatalError("JSONError", "Source contracts must be an array.");
+
+			for (auto const& contract: contracts)
+			{
+				if (!contract.isString())
+					return formatFatalError("JSONError", "Every contract in settings.modelChecker.contracts must be a string.");
+				if (contract.asString().empty())
+					return formatFatalError("JSONError", "Contract name cannot be empty.");
+				sourceContracts[source].insert(contract.asString());
+			}
+
+			if (sourceContracts[source].empty())
+				return formatFatalError("JSONError", "Source contracts must be a non-empty array.");
+		}
+		ret.modelCheckerSettings.contracts = {move(sourceContracts)};
+	}
+
 	if (modelCheckerSettings.isMember("engine"))
 	{
 		if (!modelCheckerSettings["engine"].isString())
@@ -913,12 +944,23 @@ std::variant<StandardCompiler::InputsAndSettings, Json::Value> StandardCompiler:
 
 	if (modelCheckerSettings.isMember("targets"))
 	{
-		if (!modelCheckerSettings["targets"].isString())
-			return formatFatalError("JSONError", "settings.modelChecker.targets must be a string.");
-		std::optional<ModelCheckerTargets> targets = ModelCheckerTargets::fromString(modelCheckerSettings["targets"].asString());
-		if (!targets)
-			return formatFatalError("JSONError", "Invalid model checker targets requested.");
-		ret.modelCheckerSettings.targets = *targets;
+		auto const& targetsArray = modelCheckerSettings["targets"];
+		if (!targetsArray.isArray())
+			return formatFatalError("JSONError", "settings.modelChecker.targets must be an array.");
+
+		ModelCheckerTargets targets;
+		for (auto const& t: targetsArray)
+		{
+			if (!t.isString())
+				return formatFatalError("JSONError", "Every target in settings.modelChecker.targets must be a string.");
+			if (!targets.setFromString(t.asString()))
+				return formatFatalError("JSONError", "Invalid model checker targets requested.");
+		}
+
+		if (targets.targets.empty())
+			return formatFatalError("JSONError", "settings.modelChecker.targets must be a non-empty array.");
+
+		ret.modelCheckerSettings.targets = targets;
 	}
 
 	if (modelCheckerSettings.isMember("timeout"))
