@@ -59,6 +59,7 @@ struct CommonOptions
 	bool ewasm = false;
 	bool optimize = false;
 	bool enforceViaYul = false;
+	bool enforceCompileToEwasm = false;
 	bool enforceGasTest = false;
 	u256 enforceGasTestMinValue = 100000;
 	bool disableSMT = false;
@@ -85,5 +86,10 @@ private:
 	std::string evmVersionString;
 	static std::unique_ptr<CommonOptions const> m_singleton;
 };
+
+/// @return true if it is ok to treat the file located under the specified path as a semantic test.
+/// I.e. if the test is located in the semantic test directory and is not excluded due to being a part of external sources.
+/// Note: @p _testPath can be relative but must include at least the `/test/libsolidity/semanticTests/` part
+bool isValidSemanticTestPath(boost::filesystem::path const& _testPath);
 
 }

@@ -21,6 +21,7 @@
 #include <test/Common.h>
 
 #include <libsolutil/Assertions.h>
+#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
@@ -103,6 +104,7 @@ CommonOptions::CommonOptions(std::string _caption):
 		("no-smt", po::bool_switch(&disableSMT), "disable SMT checker")
 		("optimize", po::bool_switch(&optimize), "enables optimization")
 		("enforce-via-yul", po::bool_switch(&enforceViaYul), "Enforce compiling all tests via yul to see if additional tests can be activated.")
+		("enforce-compile-to-ewasm", po::bool_switch(&enforceCompileToEwasm), "Enforce compiling all tests to Ewasm to see if additional tests can be activated.")
 		("enforce-gas-cost", po::bool_switch(&enforceGasTest), "Enforce checking gas cost in semantic tests.")
 		("enforce-gas-cost-min-value", po::value(&enforceGasTestMinValue), "Threshold value to enforce adding gas checks to a test.")
 		("abiencoderv1", po::bool_switch(&useABIEncoderV1), "enables abi encoder v1")
@@ -221,5 +223,20 @@ void CommonOptions::setSingleton(std::unique_ptr<CommonOptions const>&& _instanc
 }
 
 std::unique_ptr<CommonOptions const> CommonOptions::m_singleton = nullptr;
+
+bool isValidSemanticTestPath(boost::filesystem::path const& _testPath)
+{
+	bool insideSemanticTests = false;
+	fs::path testPathPrefix;
+	for (auto const& element: _testPath)
+	{
+		testPathPrefix /= element;
+		if (boost::ends_with(canonical(testPathPrefix).generic_string(), "/test/libsolidity/semanticTests"))
+			insideSemanticTests = true;
+		if (insideSemanticTests && boost::starts_with(element.string(), "_"))
+			return false;
+	}
+	return true;
+}
 
 }

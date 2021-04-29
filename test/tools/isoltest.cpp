@@ -79,9 +79,9 @@ public:
 		m_filterExpression = regex{"(" + filter + "(\\.sol|\\.yul))"};
 	}
 
-	bool matches(string const& _name) const
+	bool matches(fs::path const& _path, string const& _name) const
 	{
-		return regex_match(_name, m_filterExpression);
+		return regex_match(_name, m_filterExpression) && solidity::test::isValidSemanticTestPath(_path);
 	}
 
 private:
@@ -154,7 +154,7 @@ TestTool::Result TestTool::process()
 
 	try
 	{
-		if (m_filter.matches(m_name))
+		if (m_filter.matches(m_path, m_name))
 		{
 			(AnsiColorized(cout, formatted, {BOLD}) << m_name << ": ").flush();
 
@@ -163,6 +163,7 @@ TestTool::Result TestTool::process()
 				m_options.evmVersion(),
 				m_options.vmPaths,
 				m_options.enforceViaYul,
+				m_options.enforceCompileToEwasm,
 				m_options.enforceGasTest,
 				m_options.enforceGasTestMinValue
 			});
