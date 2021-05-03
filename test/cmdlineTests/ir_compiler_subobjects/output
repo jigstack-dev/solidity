@@ -12,8 +12,8 @@ object "C_3" {
             mstore(64, 128)
             if callvalue() { revert(0, 0) }
             let _1 := datasize("C_3_deployed")
-            codecopy(0, dataoffset("C_3_deployed"), _1)
-            return(0, _1)
+            codecopy(128, dataoffset("C_3_deployed"), _1)
+            return(128, _1)
         }
     }
     object "C_3_deployed" {
@@ -40,8 +40,8 @@ object "D_16" {
             mstore(64, 128)
             if callvalue() { revert(0, 0) }
             let _1 := datasize("D_16_deployed")
-            codecopy(0, dataoffset("D_16_deployed"), _1)
-            return(0, _1)
+            codecopy(128, dataoffset("D_16_deployed"), _1)
+            return(128, _1)
         }
     }
     object "D_16_deployed" {
@@ -66,8 +66,9 @@ object "D_16" {
                         datacopy(128, dataoffset("C_3"), _2)
                         if iszero(create(_1, 128, _2))
                         {
-                            returndatacopy(_1, _1, returndatasize())
-                            revert(_1, returndatasize())
+                            let pos := mload(64)
+                            returndatacopy(pos, _1, returndatasize())
+                            revert(pos, returndatasize())
                         }
                         return(mload(64), _1)
                     }
@@ -81,8 +82,8 @@ object "D_16" {
                     mstore(64, 128)
                     if callvalue() { revert(0, 0) }
                     let _1 := datasize("C_3_deployed")
-                    codecopy(0, dataoffset("C_3_deployed"), _1)
-                    return(0, _1)
+                    codecopy(128, dataoffset("C_3_deployed"), _1)
+                    return(128, _1)
                 }
             }
             object "C_3_deployed" {
