@@ -216,7 +216,10 @@ public:
 	/// @returns a new tag without pushing any opcodes or data
 	evmasm::AssemblyItem newTag() { return m_asm->newTag(); }
 	/// @returns a new tag identified by name.
-	evmasm::AssemblyItem namedTag(std::string const& _name) { return m_asm->namedTag(_name); }
+	evmasm::AssemblyItem namedTag(std::string const& _name, size_t _params, size_t _returns, std::optional<uint64_t> _sourceID)
+	{
+		return m_asm->namedTag(_name, _params, _returns, _sourceID);
+	}
 	/// Adds a subroutine to the code (in the data section) and pushes its size (via a tag)
 	/// on the stack. @returns the pushsub assembly item.
 	evmasm::AssemblyItem addSubroutine(evmasm::AssemblyPointer const& _assembly) { return m_asm->appendSubroutine(_assembly); }
@@ -268,7 +271,7 @@ public:
 	);
 
 	/// If m_revertStrings is debug, @returns inline assembly code that
-	/// stores @param _message in memory position 0 and reverts.
+	/// stores @param _message at the free memory pointer and reverts.
 	/// Otherwise returns "revert(0, 0)".
 	std::string revertReasonIfDebug(std::string const& _message = "");
 

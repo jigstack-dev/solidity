@@ -6,10 +6,16 @@ Language Features:
 
 
 Compiler Features:
+ * Standard JSON / combined JSON: New artifact "functionDebugData" that contains bytecode offsets of entry points of functions and potentially more information in the future.
  * Yul Optimizer: Evaluate ``keccak256(a, c)``, when the value at memory location ``a`` is known at compile time and ``c`` is a constant ``<= 32``.
 
 
 Bugfixes:
+ * AST: Do not output value of Yul literal if it is not a valid UTF-8 string.
+
+
+AST Changes:
+ * Add member `hexValue` for Yul string and hex literals.
 
 
 ### 0.8.4 (2021-04-21)

@@ -28,11 +28,11 @@
 #include <libsolidity/codegen/CompilerUtils.h>
 #include <libsolidity/interface/Version.h>
 
+#include <libyul/AST.h>
 #include <libyul/AsmParser.h>
 #include <libyul/AsmPrinter.h>
 #include <libyul/AsmAnalysis.h>
 #include <libyul/AsmAnalysisInfo.h>
-#include <libyul/AST.h>
 #include <libyul/backends/evm/AsmCodeGen.h>
 #include <libyul/backends/evm/EVMDialect.h>
 #include <libyul/backends/evm/EVMMetrics.h>
@@ -148,7 +148,7 @@ void CompilerContext::callYulFunction(
 	m_externallyUsedYulFunctions.insert(_name);
 	auto const retTag = pushNewTag();
 	CompilerUtils(*this).moveIntoStack(_inArgs);
-	appendJumpTo(namedTag(_name), evmasm::AssemblyItem::JumpType::IntoFunction);
+	appendJumpTo(namedTag(_name, _inArgs, _outArgs, {}), evmasm::AssemblyItem::JumpType::IntoFunction);
 	adjustStackOffset(static_cast<int>(_outArgs) - 1 - static_cast<int>(_inArgs));
 	*this << retTag.tag();
 }
@@ -426,7 +426,7 @@ void CompilerContext::appendInlineAssembly(
 		if (stackDiff < 1 || stackDiff > 16)
 			BOOST_THROW_EXCEPTION(
 				StackTooDeepError() <<
-				errinfo_sourceLocation(_identifier.location) <<
+				errinfo_sourceLocation(_identifier.debugData->location) <<
 				util::errinfo_comment("Stack too deep (" + to_string(stackDiff) + "), try removing local variables.")
 			);
 		if (_context == yul::IdentifierContext::RValue)
@@ -560,7 +560,11 @@ void CompilerContext::optimizeYul(yul::Object& _object, yul::EVMDialect const& _
 
 string CompilerContext::revertReasonIfDebug(string const& _message)
 {
-	return YulUtilFunctions::revertReasonIfDebug(m_revertStrings, _message);
+	return YulUtilFunctions::revertReasonIfDebugBody(
+		m_revertStrings,
+		"mload(" + to_string(CompilerUtils::freeMemoryPointer) + ")",
+		_message
+	);
 }
 
 void CompilerContext::updateSourceLocation()
@@ -592,7 +596,23 @@ evmasm::AssemblyItem CompilerContext::FunctionCompilationQueue::entryLabel(
 	auto res = m_entryLabels.find(&_declaration);
 	if (res == m_entryLabels.end())
 	{
-		evmasm::AssemblyItem tag(_context.newTag());
+		size_t params = 0;
+		size_t returns = 0;
+		if (auto const* function = dynamic_cast<FunctionDefinition const*>(&_declaration))
+		{
+			FunctionType functionType(*function, FunctionType::Kind::Internal);
+			params = CompilerUtils::sizeOnStack(functionType.parameterTypes());
+			returns = CompilerUtils::sizeOnStack(functionType.returnParameterTypes());
+		}
+
+		// some name that cannot clash with yul function names.
+		string labelName = "@" + _declaration.name() + "_" + to_string(_declaration.id());
+		evmasm::AssemblyItem tag = _context.namedTag(
+			labelName,
+			params,
+			returns,
+			_declaration.id()
+		);
 		m_entryLabels.insert(make_pair(&_declaration, tag));
 		m_functionsToCompile.push(&_declaration);
 		return tag.tag();
