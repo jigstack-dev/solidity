@@ -1113,6 +1113,14 @@ void SMTEncoder::visitTypeConversion(FunctionCall const& _funCall)
 	{
 		solAssert(smt::isNumber(*funCallType), "");
 
+		RationalNumberType const* rationalType = isConstant(*argument);
+		if (rationalType)
+		{
+			// The TypeChecker guarantees that a constant fits in the cast size.
+			defineExpr(_funCall, symbArg);
+			return;
+		}
+
 		auto const* fixedCast = dynamic_cast<FixedBytesType const*>(funCallType);
 		auto const* fixedArg = dynamic_cast<FixedBytesType const*>(argType);
 		if (fixedCast && fixedArg)
@@ -2299,13 +2307,13 @@ void SMTEncoder::mergeVariables(smtutil::Expression const& _condition, VariableI
 	}
 }
 
-smtutil::Expression SMTEncoder::currentValue(VariableDeclaration const& _decl)
+smtutil::Expression SMTEncoder::currentValue(VariableDeclaration const& _decl) const
 {
 	solAssert(m_context.knownVariable(_decl), "");
 	return m_context.variable(_decl)->currentValue();
 }
 
-smtutil::Expression SMTEncoder::valueAtIndex(VariableDeclaration const& _decl, unsigned _index)
+smtutil::Expression SMTEncoder::valueAtIndex(VariableDeclaration const& _decl, unsigned _index) const
 {
 	solAssert(m_context.knownVariable(_decl), "");
 	return m_context.variable(_decl)->valueAtIndex(_index);
