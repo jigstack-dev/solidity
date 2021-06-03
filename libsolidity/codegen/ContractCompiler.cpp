@@ -604,6 +604,8 @@ bool ContractCompiler::visit(VariableDeclaration const& _variableDeclaration)
 
 bool ContractCompiler::visit(FunctionDefinition const& _function)
 {
+	solAssert(_function.isImplemented(), "");
+
 	CompilerContext::LocationSetter locationSetter(m_context, _function);
 
 	m_context.startFunction(_function);
@@ -1354,6 +1356,7 @@ bool ContractCompiler::visit(PlaceholderStatement const& _placeholderStatement)
 
 bool ContractCompiler::visit(Block const& _block)
 {
+	m_context.pushVisitedNodes(&_block);
 	if (_block.unchecked())
 	{
 		solAssert(m_context.arithmetic() == Arithmetic::Checked, "");
@@ -1372,6 +1375,7 @@ void ContractCompiler::endVisit(Block const& _block)
 	}
 	// Frees local variables declared in the scope of this block.
 	popScopedVariables(&_block);
+	m_context.popVisitedNodes();
 }
 
 void ContractCompiler::appendMissingFunctions()

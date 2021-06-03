@@ -588,7 +588,12 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 		if (result)
 		{
 			bool isLibraryStorageParameter = (_variable.isLibraryFunctionParameter() && referenceType->location() == DataLocation::Storage);
-			bool callDataCheckRequired = ((_variable.isConstructorParameter() || _variable.isPublicCallableParameter()) && !isLibraryStorageParameter);
+			// We skip the calldata check for abstract contract constructors.
+			bool isAbstractConstructorParam = _variable.isConstructorParameter() && m_currentContract && m_currentContract->abstract();
+			bool callDataCheckRequired =
+				!isAbstractConstructorParam &&
+				(_variable.isConstructorParameter() || _variable.isPublicCallableParameter()) &&
+				!isLibraryStorageParameter;
 			if (callDataCheckRequired)
 			{
 				if (!referenceType->interfaceType(false))
@@ -716,7 +721,7 @@ void TypeChecker::endVisit(FunctionTypeName const& _funType)
 		{
 			solAssert(t->annotation().type, "Type not set for parameter.");
 			if (!t->annotation().type->interfaceType(false).get())
-				m_errorReporter.typeError(2582_error, t->location(), "Internal type cannot be used for external function type.");
+				m_errorReporter.fatalTypeError(2582_error, t->location(), "Internal type cannot be used for external function type.");
 		}
 		solAssert(fun.interfaceType(false), "External function type uses internal types.");
 	}

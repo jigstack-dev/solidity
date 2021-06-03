@@ -1576,19 +1576,6 @@ void IRGeneratorForStatements::endVisit(MemberAccess const& _memberAccess)
 
 	if (memberFunctionType && memberFunctionType->bound())
 	{
-		solAssert((set<Type::Category>{
-			Type::Category::Contract,
-			Type::Category::Bool,
-			Type::Category::Integer,
-			Type::Category::Address,
-			Type::Category::Function,
-			Type::Category::Struct,
-			Type::Category::Enum,
-			Type::Category::Mapping,
-			Type::Category::Array,
-			Type::Category::FixedBytes,
-		}).count(objectCategory) > 0, "");
-
 		define(IRVariable(_memberAccess).part("self"), _memberAccess.expression());
 		solAssert(*_memberAccess.annotation().requiredLookup == VirtualLookup::Static, "");
 		if (memberFunctionType->kind() == FunctionType::Kind::Internal)
@@ -2718,7 +2705,8 @@ string IRGeneratorForStatements::binaryOperation(
 		solAssert(
 			_type.category() == Type::Category::Integer ||
 			_type.category() == Type::Category::FixedBytes,
-		"");
+			""
+		);
 		switch (_operator)
 		{
 		case Token::BitOr: fun = "or"; break;
@@ -2729,6 +2717,10 @@ string IRGeneratorForStatements::binaryOperation(
 	}
 	else if (TokenTraits::isArithmeticOp(_operator))
 	{
+		solUnimplementedAssert(
+			_type.category() != Type::Category::FixedPoint,
+			"Not yet implemented - FixedPointType."
+		);
 		IntegerType const* type = dynamic_cast<IntegerType const*>(&_type);
 		solAssert(type, "");
 		bool checked = m_context.arithmetic() == Arithmetic::Checked;
@@ -2765,7 +2757,8 @@ std::string IRGeneratorForStatements::shiftOperation(
 )
 {
 	solUnimplementedAssert(
-		_amountToShift.type().category() != Type::Category::FixedPoint,
+		_amountToShift.type().category() != Type::Category::FixedPoint &&
+		_value.type().category() != Type::Category::FixedPoint,
 		"Not yet implemented - FixedPointType."
 	);
 	IntegerType const* amountType = dynamic_cast<IntegerType const*>(&_amountToShift.type());

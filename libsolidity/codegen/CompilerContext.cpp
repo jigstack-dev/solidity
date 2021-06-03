@@ -286,7 +286,11 @@ FunctionDefinition const& CompilerContext::superFunction(FunctionDefinition cons
 	solAssert(m_mostDerivedContract, "No most derived contract set.");
 	ContractDefinition const* super = _base.superContract(mostDerivedContract());
 	solAssert(super, "Super contract not available.");
-	return _function.resolveVirtual(mostDerivedContract(), super);
+
+	FunctionDefinition const& resolvedFunction = _function.resolveVirtual(mostDerivedContract(), super);
+	solAssert(resolvedFunction.isImplemented(), "");
+
+	return resolvedFunction;
 }
 
 ContractDefinition const& CompilerContext::mostDerivedContract() const
@@ -334,14 +338,7 @@ CompilerContext& CompilerContext::appendJump(evmasm::AssemblyItem::JumpType _jum
 
 CompilerContext& CompilerContext::appendPanic(util::PanicCode _code)
 {
-	Whiskers templ(R"({
-		mstore(0, <selector>)
-		mstore(4, <code>)
-		revert(0, 0x24)
-	})");
-	templ("selector", util::selectorFromSignature("Panic(uint256)").str());
-	templ("code", toCompactHexWithPrefix(static_cast<unsigned>(_code)));
-	appendInlineAssembly(templ.render());
+	callYulFunction(utilFunctions().panicFunction(_code), 0, 0);
 	return *this;
 }
 

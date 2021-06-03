@@ -6,6 +6,8 @@ Language Features:
 
 
 Compiler Features:
+ * Code Generator: Insert helper functions for panic codes instead of inlining unconditionally. This can reduce costs if many panics (checks) are inserted,
+   but can increase costs where few panics are used.
  * EVM: Set the default EVM version to "Berlin".
  * SMTChecker: Function definitions can be annotated with the custom Natspec tag ``custom:smtchecker abstract-function-nondet`` to be abstracted by a nondeterministic value when called.
  * Standard JSON / combined JSON: New artifact "functionDebugData" that contains bytecode offsets of entry points of functions and potentially more information in the future.
@@ -14,12 +16,20 @@ Compiler Features:
 
 Bugfixes:
  * AST: Do not output value of Yul literal if it is not a valid UTF-8 string.
+ * Code Generator: Fix internal error when super would have to skip an unimplemented function in the virtual resolution order.
+ * Control Flow Graph: Take internal calls to functions that always revert into account for reporting unused or unassigned variables.
  * SMTChecker: Fix internal error on struct constructor with fixed bytes member initialized with string literal.
+ * SMTChecker: Fix internal error on external calls from the constructor.
+ * SMTChecker: Fix internal error on conversion from ``bytes`` to ``fixed bytes``.
+ * Source Locations: Properly set source location of scoped blocks.
  * Standard JSON: Properly allow the ``inliner`` setting under ``settings.optimizer.details``.
+ * Type Checker: Fix internal compiler error related to having mapping types in constructor parameter for abstract contracts.
+ * Type Checker: Fix internal compiler error when attempting to use an invalid external function type on pre-byzantium EVMs.
 
 
 AST Changes:
  * Add member `hexValue` for Yul string and hex literals.
+
 
 
 ### 0.8.4 (2021-04-21)
