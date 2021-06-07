@@ -16,8 +16,10 @@ Compiler Features:
 
 Bugfixes:
  * AST: Do not output value of Yul literal if it is not a valid UTF-8 string.
+ * Code Generator: Fix internal error when function arrays are assigned to storage variables and the function types can be implicitly converted but are not identical.
  * Code Generator: Fix internal error when super would have to skip an unimplemented function in the virtual resolution order.
  * Control Flow Graph: Take internal calls to functions that always revert into account for reporting unused or unassigned variables.
+ * Control Flow Graph: Assume unimplemented modifiers use a placeholder.
  * SMTChecker: Fix internal error on struct constructor with fixed bytes member initialized with string literal.
  * SMTChecker: Fix internal error on external calls from the constructor.
  * SMTChecker: Fix internal error on conversion from ``bytes`` to ``fixed bytes``.
@@ -25,6 +27,8 @@ Bugfixes:
  * Standard JSON: Properly allow the ``inliner`` setting under ``settings.optimizer.details``.
  * Type Checker: Fix internal compiler error related to having mapping types in constructor parameter for abstract contracts.
  * Type Checker: Fix internal compiler error when attempting to use an invalid external function type on pre-byzantium EVMs.
+ * Type Checker: Make errors about (nested) mapping type in event or error parameter into fatal type errors.
+ * Type Checker: Fix internal compiler error when overriding receive ether function with one having different parameters during inheritance.
 
 
 AST Changes:
