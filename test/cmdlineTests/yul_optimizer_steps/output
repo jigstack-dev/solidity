@@ -1,10 +1,10 @@
 Optimized IR:
-/*******************************************************
+/*=====================================================*
  *                       WARNING                       *
  *  Solidity to Yul compilation is still EXPERIMENTAL  *
  *       It can result in LOSS OF FUNDS or worse       *
  *                !USE AT YOUR OWN RISK!               *
- *******************************************************/
+ *=====================================================*/
 
 object "C_7" {
     code {
@@ -40,5 +40,6 @@ object "C_7" {
             function shift_right_unsigned(value) -> newValue
             { newValue := shr(224, value) }
         }
+        data ".metadata" hex"<BYTECODE REMOVED>"
     }
 }

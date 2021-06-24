@@ -1,4 +1,4 @@
-### 0.8.6 (unreleased)
+### 0.8.7 (unreleased)
 
 Language Features:
 
@@ -7,11 +7,20 @@ Compiler Features:
 
 
 Bugfixes:
+ * Code Generator: Fix internal compiler error when calling functions bound to calldata structs and arrays.
+ * Type Checker: Fix internal error and prevent static calls to unimplemented modifiers.
+
+
+### 0.8.6 (2021-06-22)
+
+Language Features:
+ * Yul: Special meaning of ``".metadata"`` data object in Yul object.
+
+
+Bugfixes:
  * Control Flow Graph: Fix incorrectly reported unreachable code.
  * Solc-Js: When running ``solcjs`` without the ``--optimize`` flag, use ``settings.optimizer.enabled=false`` in Standard JSON instead of omitting the key.
- * Standard JSON: Omitting ``settings.optimizer.enabled`` was not equivalent to setting it to ``false``.
-   It meant disabling also the peephole optimizer and jumpdest remover which by default still run with ``enabled=false``.
-
+ * Standard JSON: Omitting ``settings.optimizer.enabled`` was not equivalent to setting it to ``false``. It meant disabling also the peephole optimizer and jumpdest remover which by default still run with ``enabled=false``.
 
 
 ### 0.8.5 (2021-06-10)

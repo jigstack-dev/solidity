@@ -139,7 +139,8 @@ The functions ``prefixed`` and ``recoverSigner`` do this in the ``claimPayment``
 The full contract
 -----------------
 
-::
+.. code-block:: solidity
+    :force:
 
     // SPDX-License-Identifier: GPL-3.0
     pragma solidity >=0.7.0 <0.9.0;
@@ -335,7 +336,8 @@ so it is important that Bob closes the channel before the expiration is reached.
 The full contract
 -----------------
 
-::
+.. code-block:: solidity
+    :force:
 
     // SPDX-License-Identifier: GPL-3.0
     pragma solidity >=0.7.0 <0.9.0;
@@ -452,7 +454,7 @@ The recipient should verify each message using the following process:
 
 We'll use the `ethereumjs-util <https://github.com/ethereumjs/ethereumjs-util>`_
 library to write this verification. The final step can be done a number of ways,
-and we use JavaScript. The following code borrows the ``constructMessage`` function from the signing **JavaScript code** above:
+and we use JavaScript. The following code borrows the ``constructPaymentMessage`` function from the signing **JavaScript code** above:
 
 ::
 
