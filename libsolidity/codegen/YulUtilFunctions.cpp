@@ -2473,11 +2473,12 @@ string YulUtilFunctions::bytesConcatFunction(vector<Type const*> const& _argumen
 			targetTypes.emplace_back(argumentType);
 		else if (
 			auto const* literalType = dynamic_cast<StringLiteralType const*>(argumentType);
-			literalType && literalType->value().size() <= 32
+			literalType && !literalType->value().empty() && literalType->value().size() <= 32
 		)
 			targetTypes.emplace_back(TypeProvider::fixedBytes(static_cast<unsigned>(literalType->value().size())));
 		else
 		{
+			solAssert(!dynamic_cast<RationalNumberType const*>(argumentType), "");
 			solAssert(argumentType->isImplicitlyConvertibleTo(*TypeProvider::bytesMemory()), "");
 			targetTypes.emplace_back(TypeProvider::bytesMemory());
 		}

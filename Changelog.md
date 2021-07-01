@@ -4,11 +4,17 @@ Language Features:
 
 
 Compiler Features:
+ * Yul EVM Code Transform: Do not reuse stack slots that immediately become unreachable.
+ * Yul EVM Code Transform: Also pop unused argument slots for functions without return variables (under the same restrictions as for functions with return variables).
+ * Yul Optimizer: Move function arguments and return variables to memory with the experimental Stack Limit Evader (which is not enabled by default).
 
 
 Bugfixes:
+ * Code Generator: Fix crash when passing an empty string literal to ``bytes.concat()``.
  * Code Generator: Fix internal compiler error when calling functions bound to calldata structs and arrays.
+ * Code Generator: Fix internal compiler error when passing a 32-byte hex literal or a zero literal to ``bytes.concat()`` by disallowing such literals.
  * Type Checker: Fix internal error and prevent static calls to unimplemented modifiers.
+ * Yul Code Generator: Fix internal compiler error when using a long literal with bitwise negation.
 
 
 ### 0.8.6 (2021-06-22)
