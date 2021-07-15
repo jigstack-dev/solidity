@@ -80,7 +80,6 @@
 
 #include <utility>
 #include <map>
-#include <range/v3/view/concat.hpp>
 
 #include <boost/algorithm/string/replace.hpp>
 
@@ -556,7 +555,7 @@ bool CompilerStack::analyze()
 
 		if (noErrors)
 		{
-			ModelChecker modelChecker(m_errorReporter, m_smtlib2Responses, m_modelCheckerSettings, m_readFile, m_enabledSMTSolvers);
+			ModelChecker modelChecker(m_errorReporter, *this, m_smtlib2Responses, m_modelCheckerSettings, m_readFile, m_enabledSMTSolvers);
 			auto allSources = applyMap(m_sourceOrder, [](Source const* _source) { return _source->ast; });
 			modelChecker.enableAllEnginesIfPragmaPresent(allSources);
 			modelChecker.checkRequestedSourcesAndContracts(allSources);
@@ -1036,12 +1035,15 @@ string const& CompilerStack::metadata(Contract const& _contract) const
 	return _contract.metadata.init([&]{ return createMetadata(_contract); });
 }
 
-Scanner const& CompilerStack::scanner(string const& _sourceName) const
+CharStream const& CompilerStack::charStream(string const& _sourceName) const
 {
 	if (m_stackState < SourcesSet)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("No sources set."));
 
-	return *source(_sourceName).scanner;
+	solAssert(source(_sourceName).scanner, "");
+	solAssert(source(_sourceName).scanner->charStream(), "");
+
+	return *source(_sourceName).scanner->charStream();
 }
 
 SourceUnit const& CompilerStack::ast(string const& _sourceName) const
@@ -1082,19 +1084,6 @@ size_t CompilerStack::functionEntryPoint(
 			return i;
 	return 0;
 }
-
-tuple<int, int, int, int> CompilerStack::positionFromSourceLocation(SourceLocation const& _sourceLocation) const
-{
-	int startLine;
-	int startColumn;
-	int endLine;
-	int endColumn;
-	tie(startLine, startColumn) = scanner(_sourceLocation.source->name()).translatePositionToLineColumn(_sourceLocation.start);
-	tie(endLine, endColumn) = scanner(_sourceLocation.source->name()).translatePositionToLineColumn(_sourceLocation.end);
-
-	return make_tuple(++startLine, ++startColumn, ++endLine, ++endColumn);
-}
-
 
 h256 const& CompilerStack::Source::keccak256() const
 {
